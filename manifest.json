@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Hide Verified Twitter Users",
-  "version": "1.0",
-  "description": "A Chrome extension that hides verified Twitter users' posts.",
+  "name": "Hide Verified Users on X",
+  "version": "2.1",
+  "description": "Hides posts from accounts that pay for X Premium (blue check) and promoted ads on X / Twitter.",
   "icons": {
     "48": "icon.png"
   },
@@ -12,8 +12,22 @@
       "48": "icon.png"
     }
   },
-  "background": {
-    "service_worker": "background.js"
-  },
-  "permissions": ["activeTab", "scripting", "storage", "tabs"]
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://x.com/*",
+    "https://twitter.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["inject.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }

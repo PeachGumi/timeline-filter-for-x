@@ -1,17 +1,41 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8" />
     <style>
       body {
-        font-family: Arial, sans-serif;
+        font-family: -apple-system, "Segoe UI", Arial, sans-serif;
         margin: 16px;
-        width: 300px;
+        width: 280px;
+        color: #0f1419;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      p {
+        font-size: 13px;
+        color: #536471;
+        margin: 0 0 16px;
+      }
+      .row {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+      }
+      .count {
+        font-size: 13px;
+        color: #536471;
+        margin-top: 14px;
+      }
+      .count b {
+        color: #1d9bf0;
       }
       .toggle {
         display: inline-block;
-        height: 20px;
+        height: 22px;
         position: relative;
-        width: 40px;
+        width: 44px;
       }
       .toggle input {
         display: none;
@@ -24,26 +48,26 @@
         position: absolute;
         right: 0;
         top: 0;
-        transition: 0.4s;
+        transition: 0.3s;
       }
       .slider:before {
         background-color: white;
-        bottom: 4px;
+        bottom: 3px;
         content: "";
-        height: 12px;
-        left: 4px;
+        height: 16px;
+        left: 3px;
         position: absolute;
-        transition: 0.4s;
-        width: 12px;
+        transition: 0.3s;
+        width: 16px;
       }
       input:checked + .slider {
-        background-color: #1da1f2;
+        background-color: #1d9bf0;
       }
       input:checked + .slider:before {
-        transform: translateX(20px);
+        transform: translateX(22px);
       }
       .slider.round {
-        border-radius: 34px;
+        border-radius: 22px;
       }
       .slider.round:before {
         border-radius: 50%;
@@ -51,12 +75,17 @@
     </style>
   </head>
   <body>
-    <h1>Hide Verified Twitter Users</h1>
-    <p>Toggle the switch to hide or show verified Twitter users' posts:</p>
-    <label class="toggle">
-      <input type="checkbox" id="toggleSwitch" />
-      <span class="slider round"></span>
-    </label>
+    <h1>Hide Paid Verified Users</h1>
+    <p>Hides posts from accounts that pay for X Premium. Gold (business), grey
+      (government) and legacy badges are left alone.</p>
+    <div class="row">
+      <span>Hiding paid-verified posts</span>
+      <label class="toggle">
+        <input type="checkbox" id="toggleSwitch" />
+        <span class="slider round"></span>
+      </label>
+    </div>
+    <div class="count">Hidden on this page: <b id="count">0</b></div>
     <script src="popup.js"></script>
   </body>
 </html>

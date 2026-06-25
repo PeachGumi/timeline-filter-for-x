@@ -1,42 +1,60 @@
-## Chrome Extension: Hide Verified Posts
+## Hide Paid Verified Users on X
 
-This Chrome extension allows you to toggle hiding verified posts on Twitter. When the extension is active, it will hide all tweets from verified users.
+A Chrome extension that hides posts from accounts that **pay for verification**
+(X Premium individuals — the blue check) on **X / Twitter**. It deliberately
+leaves other checkmarks alone:
 
-Now available on the [Chrome Extension Store](https://chrome.google.com/webstore/detail/hide-verified-twitter-use/egpeogmkamgdmolhpkajgnoookedcghb)
+- 🟡 **Gold** (Verified Organizations / Business) — shown
+- ⚪ **Grey** (Government / official) — shown
+- **Legacy notable** verified accounts — shown
+- 🔵 **Paid blue (X Premium individual)** — hidden
+
+The blue badge in the page looks identical regardless of *why* it was granted —
+the paid/not-paid distinction only exists in X's API data. So the extension reads
+X's own API responses to classify each account, then hides only the paid ones.
+
+Available on the [Chrome Web Store](https://chrome.google.com/webstore/detail/hide-verified-twitter-use/egpeogmkamgdmolhpkajgnoookedcghb).
 
 ![chrome store logo](https://user-images.githubusercontent.com/11499173/234866562-cfb9fac2-70fa-4e44-a6fc-f222025c402f.png)
 
-
-This is an altered version that does not use the tabs permission so has a little bit more errors, but still works.
-
-
-https://user-images.githubusercontent.com/11499173/233733362-86a3f910-4a62-4b4a-879e-972025708362.mp4
-
-
 ### How to use
 
-1. Install the extension in your Chrome browser.
-2. Click on the extension icon in the toolbar to toggle between hiding and showing verified posts.
-3. The extension will automatically update the display of tweets on the current page according to your preference (hide/show verified posts).
+1. Install the extension (or load it unpacked — see below).
+2. Click the toolbar icon and flip the **Hiding verified posts** switch.
+3. Verified posts are hidden live as you browse. The popup shows how many are
+   currently hidden on the page.
 
-### Code Explanation
+The preference is stored in `chrome.storage.sync`, so it follows you across
+devices and applies to every open X / Twitter tab at once.
 
-- `registerTab()` function sends a message to the background script to register the current tab.
-- `updateBlockedCount(count)` function sends a message to the background script to update the count of blocked tweets.
-- `toggleHidingVerifiedPosts(isHiding)` function hides or shows verified posts based on the `isHiding` parameter. It also updates the blocked count.
-- The `chrome.runtime.onMessage` listener listens for messages from the background script to toggle hiding verified posts.
-- The `chrome.storage.sync.get` function gets the current hiding preference from the storage and applies it to the page.
-- `setInterval` function is used to periodically check for changes on the page and apply the hiding preference accordingly.
-- The `hideStyle` CSS rule is added to the page to enable hiding tweets by adding the `hidden-verified-user` class to the tweet container.
+### Load unpacked (for development)
 
-### Additional Notes
+1. Visit `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked** and select this folder.
 
-- The extension targets verified badges on Twitter using the `verifiedBadgeSelector`.
-- It finds the corresponding tweet container using the `tweetContainerSelector`.
-- The extension works by adding or removing the `hideClass` ("hidden-verified-user") to the tweet container.
-- The hiding preference is stored in `chrome.storage.sync`, allowing the preference to sync across devices.
-- The `setInterval` function is used to periodically re-check and apply the hiding preference to ensure it works with the dynamic loading of tweets on Twitter.
+### How it works
 
+- `inject.js` runs in the page's **MAIN world** at `document_start` and patches
+  `fetch`/`XHR` to observe X's API responses. Each User object carries
+  `is_blue_verified` and `verified_type`, which it uses to classify a handle as
+  `paid` (blue, individual) vs. `other` (business/government/legacy). It posts a
+  `handle -> status` map to the content script via `window.postMessage`.
+- `content.js` (isolated world) watches the page with a `MutationObserver`, reads
+  each post's author handle, and hides the post only if that handle is `paid`.
+- The popup writes the on/off flag to `chrome.storage.sync`; the content script
+  reacts to that change directly, so no background service worker is needed.
+- The live hidden count is written to `chrome.storage.local` and shown in the
+  popup.
 
-If you want to try to block people without using the soon(tm) to be defunct api as well, try this untested code:
-https://gist.github.com/sardistic/e7c9973d79d1f17d0e4f1d541de3dc16
+Because classification depends on X's API traffic, a freshly loaded post is hidden
+as soon as its user data arrives (usually the same response that rendered it).
+
+### Files
+
+| File | Purpose |
+| --- | --- |
+| `manifest.json` | MV3 manifest, host permissions, content-script registration |
+| `inject.js` | MAIN-world API interceptor that classifies paid vs. other badges |
+| `content.js` | Hides paid-verified posts via `MutationObserver` |
+| `popup.html` / `popup.js` | Toggle UI and live hidden count |

@@ -97,7 +97,7 @@
     return (
       article.querySelector('[data-testid="tweetText"]')?.textContent ||
       article.querySelector('div[dir="auto"]')?.textContent ||
-      article.innerText ||
+      article.textContent ||
       ""
     ).trim();
   }

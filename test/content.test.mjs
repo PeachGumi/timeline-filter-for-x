@@ -3,14 +3,17 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks = null, statusLinkOnly = false, text = '', aiLabel = '', mediaMarker = false, adWrapper = false } = {}) {
+function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks = null, statusLinkOnly = false, text = '', textContainer = true, collapseTextWhenHidden = false, aiLabel = '', mediaMarker = false, adWrapper = false } = {}) {
   const classes = new Set();
   const header = {
     querySelectorAll: () => handle ? [{ getAttribute: () => `/${handle}` }] : [],
     textContent: '',
   };
   return {
-    innerText: text,
+    get innerText() {
+      return collapseTextWhenHidden && classes.has('hvu-hidden') ? '' : text;
+    },
+    textContent: text,
     classList: {
       add: (name) => classes.add(name),
       remove: (name) => classes.delete(name),
@@ -46,7 +49,7 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks =
     },
     querySelector: (selector) => {
       if (selector === '[data-testid="User-Name"]') return header;
-      if (selector === 'div[dir="auto"]' && text) return { textContent: text };
+      if (selector === 'div[dir="auto"]' && text && textContainer) return { textContent: text };
       if (selector === '[data-testid="placementTracking"]' && mediaMarker) return {};
       if (selector === 'time' && tweetId && !statusLinkOnly) {
         return { closest: () => ({ getAttribute: () => `/${handle}/status/${tweetId}` }) };
@@ -95,6 +98,7 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
   context.window.window = context.window;
   vm.runInNewContext(source, context);
   messageHandler({ source: context.window, data: { source: 'hvu', users, ...messageData } });
+  return (data) => messageHandler({ source: context.window, data: { source: 'hvu', ...data } });
 }
 
 test('hides a paid account but keeps an unverified placement-tracked video', () => {
@@ -234,6 +238,25 @@ test('does not hide short kanji-only Japanese text on an unreliable local result
   await new Promise(resolve => setImmediate(resolve));
 
   assert.equal(japanesePost.classList.contains('hvu-hidden'), false);
+});
+
+test('keeps a locally detected foreign article hidden across later rechecks', async () => {
+  const foreignPost = makeArticle({
+    handle: 'richharvin',
+    text: 'Lil Durk is out!! 🎉',
+    textContainer: false,
+    collapseTextWhenHidden: true,
+  });
+  const dispatch = runContent({
+    articles: [foreignPost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    detectedResult: { isReliable: false, languages: [{ language: 'en', percentage: 100 }] },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(foreignPost.classList.contains('hvu-hidden'), true);
+
+  dispatch({ users: { another_user: 'other' } });
+  assert.equal(foreignPost.classList.contains('hvu-hidden'), true);
 });
 
 test('uses the outer author status ID instead of a quoted post ID', () => {

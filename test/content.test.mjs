@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinkOnly = false, text = '', aiLabel = '', mediaMarker = false, adWrapper = false } = {}) {
+function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks = null, statusLinkOnly = false, text = '', aiLabel = '', mediaMarker = false, adWrapper = false } = {}) {
   const classes = new Set();
   const header = {
     querySelectorAll: () => handle ? [{ getAttribute: () => `/${handle}` }] : [],
@@ -26,6 +26,11 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinkOnl
         }));
       }
       if (selector === 'a[href*="/status/"]') {
+        if (statusLinks) {
+          return statusLinks.map((link) => ({
+            getAttribute: () => `/${link.handle}/status/${link.id}`,
+          }));
+        }
         return (tweetIds || (tweetId ? [tweetId] : [])).map((id) => ({
           getAttribute: () => `/${handle}/status/${id}`,
         }));
@@ -200,6 +205,24 @@ test('locally detects foreign text when X provides no language metadata', async 
   await new Promise(resolve => setImmediate(resolve));
 
   assert.equal(foreignPost.classList.contains('hvu-hidden'), true);
+});
+
+test('uses the outer author status ID instead of a quoted post ID', () => {
+  const foreignQuotePost = makeArticle({
+    handle: 'SamErde',
+    statusLinkOnly: true,
+    statusLinks: [
+      { handle: 'GsInfosystems', id: '2098428914704286121' },
+      { handle: 'SamErde', id: '2098780362599956940' },
+    ],
+  });
+  runContent({
+    articles: [foreignQuotePost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    messageData: { languages: { '2098780362599956940': 'en' } },
+  });
+
+  assert.equal(foreignQuotePost.classList.contains('hvu-hidden'), true);
 });
 
 test('hides AI-labeled posts only when the option is enabled', () => {

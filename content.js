@@ -65,6 +65,14 @@
   }
 
   function tweetId(article) {
+    const author = authorHandle(article);
+    if (author) {
+      for (const link of article.querySelectorAll('a[href*="/status/"]')) {
+        const href = link.getAttribute("href") || "";
+        const match = href.match(/\/(?:https?:\/\/(?:www\.)?(?:x|twitter)\.com\/)?([A-Za-z0-9_]{1,15})\/status\/(\d+)/i);
+        if (match && match[1].toLowerCase() === author) return match[2];
+      }
+    }
     return statusIds(article)[0] || null;
   }
 

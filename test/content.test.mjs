@@ -85,15 +85,17 @@ test('hides a paid account but keeps an unverified placement-tracked video', () 
   assert.equal(paidPost.classList.contains('hvu-hidden'), true);
 });
 
-test('keeps paid posts visible on an individual status page', () => {
-  const paidPost = makeArticle({ handle: 'paid_user' });
+test('keeps the linked post visible but filters paid replies on a status page', () => {
+  const linkedPost = makeArticle({ handle: 'paid_user', tweetId: '2098574607339159828' });
+  const paidReply = makeArticle({ handle: 'paid_reply', tweetId: '2098574607339159829' });
   runContent({
     pathname: '/paid_user/status/2098574607339159828',
-    articles: [paidPost],
-    users: { paid_user: 'paid' },
+    articles: [linkedPost, paidReply],
+    users: { paid_user: 'paid', paid_reply: 'paid' },
   });
 
-  assert.equal(paidPost.classList.contains('hvu-hidden'), false);
+  assert.equal(linkedPost.classList.contains('hvu-hidden'), false);
+  assert.equal(paidReply.classList.contains('hvu-hidden'), true);
 });
 
 test('hides AI-labeled posts only when the option is enabled', () => {

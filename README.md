@@ -10,7 +10,8 @@ leaves other checkmarks alone:
 - 🔵 **Paid blue (X Premium individual)** — hidden
 
 An independent popup option can also hide posts carrying X's **Made with AI**
-label. It is off by default. Individual post pages remain unfiltered.
+label. It is off by default. On an individual post page, the linked post itself
+remains visible while paid verified replies are still filtered.
 
 The blue badge in the page looks identical regardless of *why* it was granted —
 the paid/not-paid distinction only exists in X's API data. So the extension reads

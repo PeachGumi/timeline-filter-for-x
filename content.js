@@ -64,18 +64,20 @@
     return false;
   }
 
-  function isIndividualStatusPage() {
-    return /^\/(?:[A-Za-z0-9_]{1,15}|i\/web)\/status\/\d+(?:\/|$)/.test(location.pathname);
+  function routeStatusId() {
+    const match = location.pathname.match(/^\/(?:[A-Za-z0-9_]{1,15}|i\/web)\/status\/(\d+)(?:\/|$)/);
+    return match ? match[1] : null;
   }
 
   function apply() {
     const articles = document.querySelectorAll(TWEET_SELECTOR);
-    const statusPage = isIndividualStatusPage();
+    const linkedTweetId = routeStatusId();
     let count = 0;
     articles.forEach((article) => {
-      const filtered = !statusPage && (
+      const linkedPost = linkedTweetId && tweetId(article) === linkedTweetId;
+      const filtered = !linkedPost && (
         (isHiding && isPaid(article)) ||
-        (hideAiGenerated && isAiGenerated(article))
+        (!linkedTweetId && hideAiGenerated && isAiGenerated(article))
       );
       if (filtered) {
         article.classList.add(HIDE_CLASS);

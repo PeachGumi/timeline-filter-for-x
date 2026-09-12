@@ -3,13 +3,14 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-function makeArticle({ handle = '', tweetId = '', tweetIds = null, aiLabel = '', mediaMarker = false, adWrapper = false } = {}) {
+function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinkOnly = false, text = '', aiLabel = '', mediaMarker = false, adWrapper = false } = {}) {
   const classes = new Set();
   const header = {
     querySelectorAll: () => handle ? [{ getAttribute: () => `/${handle}` }] : [],
     textContent: '',
   };
   return {
+    innerText: text,
     classList: {
       add: (name) => classes.add(name),
       remove: (name) => classes.delete(name),
@@ -19,8 +20,14 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, aiLabel = '',
       selector === '[data-testid="placementTracking"]' && adWrapper ? {} : null,
     querySelectorAll: (selector) => {
       if (selector === 'time') {
+        if (statusLinkOnly) return [];
         return (tweetIds || (tweetId ? [tweetId] : [])).map((id) => ({
           closest: () => ({ getAttribute: () => `/${handle}/status/${id}` }),
+        }));
+      }
+      if (selector === 'a[href*="/status/"]') {
+        return (tweetIds || (tweetId ? [tweetId] : [])).map((id) => ({
+          getAttribute: () => `/${handle}/status/${id}`,
         }));
       }
       if (selector === '[aria-label], span' && aiLabel) {
@@ -35,7 +42,7 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, aiLabel = '',
     querySelector: (selector) => {
       if (selector === '[data-testid="User-Name"]') return header;
       if (selector === '[data-testid="placementTracking"]' && mediaMarker) return {};
-      if (selector === 'time' && tweetId) {
+      if (selector === 'time' && tweetId && !statusLinkOnly) {
         return { closest: () => ({ getAttribute: () => `/${handle}/status/${tweetId}` }) };
       }
       return null;
@@ -43,11 +50,16 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, aiLabel = '',
   };
 }
 
-function runContent({ pathname = '/home', articles, users = {}, storage = { isHiding: true }, messageData = {} }) {
+function runContent({ pathname = '/home', articles, users = {}, storage = { isHiding: true }, messageData = {}, detectedLanguage = null }) {
   const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
   let messageHandler;
   const context = {
     chrome: {
+      i18n: {
+        detectLanguage(_text, callback) {
+          if (detectedLanguage) setImmediate(() => callback({ isReliable: true, languages: [{ language: detectedLanguage, percentage: 100 }] }));
+        },
+      },
       storage: {
         local: { set() {} },
         onChanged: { addListener() {} },
@@ -156,6 +168,38 @@ test('keeps the linked foreign post visible but filters foreign replies', () => 
 
   assert.equal(linkedPost.classList.contains('hvu-hidden'), false);
   assert.equal(foreignReply.classList.contains('hvu-hidden'), true);
+});
+
+test('hides a foreign post whose modern X markup has a status link but no time element', () => {
+  const foreignPost = makeArticle({
+    handle: 'shriii_raut',
+    tweetId: '2098457357617648028',
+    statusLinkOnly: true,
+  });
+  runContent({
+    articles: [foreignPost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    messageData: { languages: { '2098457357617648028': 'en' } },
+  });
+
+  assert.equal(foreignPost.classList.contains('hvu-hidden'), true);
+});
+
+test('locally detects foreign text when X provides no language metadata', async () => {
+  const foreignPost = makeArticle({
+    handle: 'shriii_raut',
+    tweetId: '2098457357617648028',
+    statusLinkOnly: true,
+    text: 'Always re-watch your favourite movies at different stages of your life.',
+  });
+  runContent({
+    articles: [foreignPost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    detectedLanguage: 'en',
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(foreignPost.classList.contains('hvu-hidden'), true);
 });
 
 test('hides AI-labeled posts only when the option is enabled', () => {

@@ -14,9 +14,11 @@ label. It is off by default. On an individual post page, the linked post itself
 remains visible while paid verified replies are still filtered.
 
 Another independent option hides posts that X explicitly classifies as a
-non-Japanese language. Japanese and unknown-language posts remain visible. It
-uses the same page scope as the paid-verification filter: the linked post on an
-individual status page stays visible, while matching replies are filtered.
+non-Japanese language. Japanese and unknown-language posts remain visible. When
+X omits language metadata, the extension falls back to Brave's local language
+detector; no post text is sent to an external service. It uses the same page
+scope as the paid-verification filter: the linked post on an individual status
+page stays visible, while matching replies are filtered.
 
 The blue badge in the page looks identical regardless of *why* it was granted —
 the paid/not-paid distinction only exists in X's API data. So the extension reads

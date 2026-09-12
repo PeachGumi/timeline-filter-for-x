@@ -20,6 +20,8 @@
   const status = new Map(); // lowercased handle -> "paid" | "other"
   const aiPostIds = new Set();
   const languages = new Map(); // tweet ID -> X language code
+  const localLanguages = new Map();
+  const pendingLanguageIds = new Set();
 
   const style = document.createElement("style");
   style.id = "hvu-style";
@@ -46,20 +48,28 @@
     return handle ? status.get(handle) === "paid" : false;
   }
 
+  function statusIds(article) {
+    const ids = [];
+    const addHref = (href) => {
+      const match = href && href.match(/\/status\/(\d+)/);
+      if (match && !ids.includes(match[1])) ids.push(match[1]);
+    };
+
+    for (const time of article.querySelectorAll("time")) {
+      addHref(time.closest('a[href*="/status/"]')?.getAttribute("href"));
+    }
+    for (const link of article.querySelectorAll('a[href*="/status/"]')) {
+      addHref(link.getAttribute("href"));
+    }
+    return ids;
+  }
+
   function tweetId(article) {
-    const time = article.querySelector("time");
-    const href = time && time.closest('a[href*="/status/"]')?.getAttribute("href");
-    const match = href && href.match(/\/status\/(\d+)/);
-    return match ? match[1] : null;
+    return statusIds(article)[0] || null;
   }
 
   function hasTweetId(article, id) {
-    for (const time of article.querySelectorAll("time")) {
-      const href = time.closest('a[href*="/status/"]')?.getAttribute("href");
-      const match = href && href.match(/\/status\/(\d+)/);
-      if (match && match[1] === id) return true;
-    }
-    return false;
+    return statusIds(article).includes(id);
   }
 
   function isAiGenerated(article) {
@@ -84,7 +94,35 @@
     if (domLanguage) return knownForeign(domLanguage);
 
     const id = tweetId(article);
-    return knownForeign(id && languages.get(id));
+    const apiLanguage = id && languages.get(id);
+    if (apiLanguage) return knownForeign(apiLanguage);
+
+    const localLanguage = id && localLanguages.get(id);
+    if (localLanguage) return knownForeign(localLanguage);
+
+    if (id && !pendingLanguageIds.has(id) && chrome.i18n?.detectLanguage) {
+      const body = (
+        article.querySelector('[data-testid="tweetText"]')?.textContent ||
+        article.innerText ||
+        ""
+      ).trim();
+      if (body.length >= 4) {
+        pendingLanguageIds.add(id);
+        try {
+          chrome.i18n.detectLanguage(body, (result) => {
+            pendingLanguageIds.delete(id);
+            const top = result?.languages?.[0];
+            if (top && (result.isReliable || top.percentage >= 70)) {
+              localLanguages.set(id, top.language.toLowerCase());
+              schedule();
+            }
+          });
+        } catch (_) {
+          pendingLanguageIds.delete(id);
+        }
+      }
+    }
+    return false;
   }
 
   function routeStatusId() {

@@ -42,10 +42,10 @@
     return handle ? status.get(handle) === "paid" : false;
   }
 
-  // Promoted/ad posts. X wraps these in a placementTracking node; the advertiser
-  // is usually a gold (business) account, so it isn't caught by the paid check.
+  // Promoted/ad posts are wrapped by a placementTracking node. Regular video
+  // posts may contain one inside the article, so only inspect ancestors here.
   function isAd(article) {
-    return !!article.querySelector('[data-testid="placementTracking"]');
+    return !!article.closest('[data-testid="placementTracking"]');
   }
 
   function apply() {

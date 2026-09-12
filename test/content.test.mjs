@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-function makeArticle({ mediaMarker = false, adWrapper = false } = {}) {
+function makeArticle({ handle = '', mediaMarker = false, adWrapper = false } = {}) {
   const classes = new Set();
   const header = {
-    querySelectorAll: () => [],
+    querySelectorAll: () => handle ? [{ getAttribute: () => `/${handle}` }] : [],
     textContent: '',
   };
   return {
@@ -25,11 +25,12 @@ function makeArticle({ mediaMarker = false, adWrapper = false } = {}) {
   };
 }
 
-test('hides a promoted wrapper but keeps a normal video post', () => {
-  const normalVideo = makeArticle({ mediaMarker: true });
-  const promotedPost = makeArticle({ adWrapper: true });
-  const articles = [normalVideo, promotedPost];
+test('hides a paid account but keeps an unverified placement-tracked video', () => {
+  const normalVideo = makeArticle({ handle: 'love___not_', mediaMarker: true, adWrapper: true });
+  const paidPost = makeArticle({ handle: 'paid_user' });
+  const articles = [normalVideo, paidPost];
   const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
+  let messageHandler;
 
   const context = {
     chrome: {
@@ -50,12 +51,21 @@ test('hides a promoted wrapper but keeps a normal video post', () => {
     Map,
     MutationObserver: class { observe() {} },
     requestAnimationFrame: (callback) => callback(),
-    window: { addEventListener() {}, postMessage() {} },
+    window: {
+      addEventListener(type, handler) {
+        if (type === 'message') messageHandler = handler;
+      },
+      postMessage() {},
+    },
   };
   context.window.window = context.window;
 
   vm.runInNewContext(source, context);
+  messageHandler({
+    source: context.window,
+    data: { source: 'hvu', users: { paid_user: 'paid', love___not_: 'other' } },
+  });
 
   assert.equal(normalVideo.classList.contains('hvu-hidden'), false);
-  assert.equal(promotedPost.classList.contains('hvu-hidden'), true);
+  assert.equal(paidPost.classList.contains('hvu-hidden'), true);
 });

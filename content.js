@@ -42,17 +42,11 @@
     return handle ? status.get(handle) === "paid" : false;
   }
 
-  // Promoted/ad posts are wrapped by a placementTracking node. Regular video
-  // posts may contain one inside the article, so only inspect ancestors here.
-  function isAd(article) {
-    return !!article.closest('[data-testid="placementTracking"]');
-  }
-
   function apply() {
     const articles = document.querySelectorAll(TWEET_SELECTOR);
     let count = 0;
     articles.forEach((article) => {
-      const paid = isPaid(article) || isAd(article);
+      const paid = isPaid(article);
       if (isHiding && paid) {
         article.classList.add(HIDE_CLASS);
         count++;

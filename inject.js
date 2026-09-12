@@ -26,6 +26,18 @@
     ).toLowerCase();
     if (!handle) return null;
 
+    // Some timeline payloads repeat the same user as a partial object. A
+    // partial copy must not be treated as explicitly unverified.
+    const hasVerificationSignal =
+      typeof user.is_blue_verified === "boolean" ||
+      typeof user.isBlueVerified === "boolean" ||
+      typeof verification.is_blue_verified === "boolean" ||
+      typeof verification.verified === "boolean" ||
+      typeof user.verified_type === "string" ||
+      typeof verification.verified_type === "string" ||
+      typeof legacy.verified_type === "string";
+    if (!hasVerificationSignal) return null;
+
     const isBlue =
       user.is_blue_verified === true ||
       user.isBlueVerified === true ||

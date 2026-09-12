@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-function makeArticle({ handle = '', tweetId = '', aiLabel = '', mediaMarker = false, adWrapper = false } = {}) {
+function makeArticle({ handle = '', tweetId = '', tweetIds = null, aiLabel = '', mediaMarker = false, adWrapper = false } = {}) {
   const classes = new Set();
   const header = {
     querySelectorAll: () => handle ? [{ getAttribute: () => `/${handle}` }] : [],
@@ -18,6 +18,11 @@ function makeArticle({ handle = '', tweetId = '', aiLabel = '', mediaMarker = fa
     closest: (selector) =>
       selector === '[data-testid="placementTracking"]' && adWrapper ? {} : null,
     querySelectorAll: (selector) => {
+      if (selector === 'time') {
+        return (tweetIds || (tweetId ? [tweetId] : [])).map((id) => ({
+          closest: () => ({ getAttribute: () => `/${handle}/status/${id}` }),
+        }));
+      }
       if (selector === '[aria-label], span' && aiLabel) {
         return [{
           textContent: aiLabel,
@@ -96,6 +101,21 @@ test('keeps the linked post visible but filters paid replies on a status page', 
 
   assert.equal(linkedPost.classList.contains('hvu-hidden'), false);
   assert.equal(paidReply.classList.contains('hvu-hidden'), true);
+});
+
+test('keeps a linked quote post visible when its quoted post has another ID', () => {
+  const linkedQuotePost = makeArticle({
+    handle: 'tkzwgrs',
+    tweetId: '2098569707494539578',
+    tweetIds: ['2098569707494539578', '2098582777331605753'],
+  });
+  runContent({
+    pathname: '/tkzwgrs/status/2098582777331605753',
+    articles: [linkedQuotePost],
+    users: { tkzwgrs: 'paid' },
+  });
+
+  assert.equal(linkedQuotePost.classList.contains('hvu-hidden'), false);
 });
 
 test('hides AI-labeled posts only when the option is enabled', () => {

@@ -51,6 +51,15 @@
     return match ? match[1] : null;
   }
 
+  function hasTweetId(article, id) {
+    for (const time of article.querySelectorAll("time")) {
+      const href = time.closest('a[href*="/status/"]')?.getAttribute("href");
+      const match = href && href.match(/\/status\/(\d+)/);
+      if (match && match[1] === id) return true;
+    }
+    return false;
+  }
+
   function isAiGenerated(article) {
     const id = tweetId(article);
     if (id && aiPostIds.has(id)) return true;
@@ -74,7 +83,7 @@
     const linkedTweetId = routeStatusId();
     let count = 0;
     articles.forEach((article) => {
-      const linkedPost = linkedTweetId && tweetId(article) === linkedTweetId;
+      const linkedPost = linkedTweetId && hasTweetId(article, linkedTweetId);
       const filtered = !linkedPost && (
         (isHiding && isPaid(article)) ||
         (!linkedTweetId && hideAiGenerated && isAiGenerated(article))

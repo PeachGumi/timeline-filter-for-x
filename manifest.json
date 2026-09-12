@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Hide Verified Users on X (Fixed)",
-  "version": "2.2.2",
-  "description": "Hides paid X Premium posts and optionally posts labeled Made with AI on X / Twitter.",
+  "version": "2.3.0",
+  "description": "Hides paid X Premium posts and optionally AI-labeled or non-Japanese posts on X / Twitter.",
   "icons": {
     "48": "icon.png"
   },

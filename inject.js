@@ -57,17 +57,23 @@
 
   const seen = new Map(); // handle -> status, to avoid re-posting duplicates
   const seenAiPosts = new Set();
+  const seenLanguages = new Map();
 
-  // Recursively walk a parsed response, collecting User and AI-label data.
-  function harvest(node, userOut, aiOut, depth) {
+  // Recursively walk a parsed response, collecting User, AI-label and language data.
+  function harvest(node, userOut, aiOut, languageOut, depth) {
     if (!node || typeof node !== "object" || depth > 40) return;
     if (Array.isArray(node)) {
-      for (const item of node) harvest(item, userOut, aiOut, depth + 1);
+      for (const item of node) harvest(item, userOut, aiOut, languageOut, depth + 1);
       return;
     }
     if (node.made_with_ai === true || node.madeWithAi === true) {
       const id = String(node.rest_id || node.id_str || node.tweet_id || node.id || "");
       if (/^\d{5,}$/.test(id)) aiOut.push(id);
+    }
+    const tweetId = String(node.rest_id || node.id_str || node.tweet_id || "");
+    const language = node.lang || (node.legacy && node.legacy.lang);
+    if (/^\d{5,}$/.test(tweetId) && typeof language === "string" && language) {
+      languageOut.push({ id: tweetId, language: language.toLowerCase() });
     }
     const hasUserShape =
       "is_blue_verified" in node ||
@@ -81,7 +87,7 @@
     }
     for (const key in node) {
       const val = node[key];
-      if (val && typeof val === "object") harvest(val, userOut, aiOut, depth + 1);
+      if (val && typeof val === "object") harvest(val, userOut, aiOut, languageOut, depth + 1);
     }
   }
 
@@ -99,9 +105,11 @@
     if (!data || typeof data !== "object") return;
     const found = [];
     const foundAiPosts = [];
-    harvest(data, found, foundAiPosts, 0);
+    const foundLanguages = [];
+    harvest(data, found, foundAiPosts, foundLanguages, 0);
     const updates = {};
     const aiPosts = {};
+    const languages = {};
     for (const { handle, status } of found) {
       if (seen.get(handle) !== status) {
         seen.set(handle, status);
@@ -114,11 +122,17 @@
         aiPosts[id] = true;
       }
     }
+    for (const { id, language } of foundLanguages) {
+      if (seenLanguages.get(id) !== language) {
+        seenLanguages.set(id, language);
+        languages[id] = language;
+      }
+    }
     if (found.length) log("scanned response:", found.length, "users,", Object.keys(updates).length, "new");
-    if (Object.keys(updates).length || Object.keys(aiPosts).length) {
+    if (Object.keys(updates).length || Object.keys(aiPosts).length || Object.keys(languages).length) {
       const paid = Object.entries(updates).filter(([, s]) => s === "paid").map(([h]) => h);
       if (paid.length) log("paid handles:", paid.join(", "));
-      window.postMessage({ source: "hvu", users: updates, aiPosts }, "*");
+      window.postMessage({ source: "hvu", users: updates, aiPosts, languages }, "*");
     }
   }
 

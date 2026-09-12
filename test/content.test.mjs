@@ -118,6 +118,46 @@ test('keeps a linked quote post visible when its quoted post has another ID', ()
   assert.equal(linkedQuotePost.classList.contains('hvu-hidden'), false);
 });
 
+test('hides foreign-language posts but keeps Japanese posts when enabled', () => {
+  const foreignPost = makeArticle({ handle: 'caralhodog', tweetId: '2098600810179358878' });
+  const japanesePost = makeArticle({ handle: 'jp_user', tweetId: '2098600810179358879' });
+  const unknownPost = makeArticle({ handle: 'unknown_user', tweetId: '2098600810179358881' });
+  runContent({
+    articles: [foreignPost, japanesePost, unknownPost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    messageData: {
+      languages: {
+        '2098600810179358878': 'pt',
+        '2098600810179358879': 'ja',
+        '2098600810179358881': 'und',
+      },
+    },
+  });
+
+  assert.equal(foreignPost.classList.contains('hvu-hidden'), true);
+  assert.equal(japanesePost.classList.contains('hvu-hidden'), false);
+  assert.equal(unknownPost.classList.contains('hvu-hidden'), false);
+});
+
+test('keeps the linked foreign post visible but filters foreign replies', () => {
+  const linkedPost = makeArticle({ handle: 'caralhodog', tweetId: '2098600810179358878' });
+  const foreignReply = makeArticle({ handle: 'foreign_reply', tweetId: '2098600810179358880' });
+  runContent({
+    pathname: '/caralhodog/status/2098600810179358878',
+    articles: [linkedPost, foreignReply],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    messageData: {
+      languages: {
+        '2098600810179358878': 'pt',
+        '2098600810179358880': 'en',
+      },
+    },
+  });
+
+  assert.equal(linkedPost.classList.contains('hvu-hidden'), false);
+  assert.equal(foreignReply.classList.contains('hvu-hidden'), true);
+});
+
 test('hides AI-labeled posts only when the option is enabled', () => {
   const enabledPost = makeArticle({ handle: 'ner2048', tweetId: '2098607063819767842' });
   runContent({

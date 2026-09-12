@@ -1,5 +1,6 @@
 const toggleSwitch = document.getElementById("toggleSwitch");
 const aiToggle = document.getElementById("hideAiGenerated");
+const foreignToggle = document.getElementById("hideForeignLanguage");
 const countEl = document.getElementById("count");
 
 // Toggle hiding — the content script reacts to this storage change directly.
@@ -11,10 +12,15 @@ aiToggle.addEventListener("change", () => {
   chrome.storage.sync.set({ hideAiGenerated: aiToggle.checked });
 });
 
+foreignToggle.addEventListener("change", () => {
+  chrome.storage.sync.set({ hideForeignLanguage: foreignToggle.checked });
+});
+
 // Restore the saved toggle state.
-chrome.storage.sync.get(["isHiding", "hideAiGenerated"], (storage) => {
+chrome.storage.sync.get(["isHiding", "hideAiGenerated", "hideForeignLanguage"], (storage) => {
   toggleSwitch.checked = !!storage.isHiding;
   aiToggle.checked = !!storage.hideAiGenerated;
+  foreignToggle.checked = !!storage.hideForeignLanguage;
 });
 
 // Show the current hidden count and keep it live while the popup is open.

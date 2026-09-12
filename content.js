@@ -15,9 +15,11 @@
 
   let isHiding = false;
   let hideAiGenerated = false;
+  let hideForeignLanguage = false;
   let blockedCount = 0;
   const status = new Map(); // lowercased handle -> "paid" | "other"
   const aiPostIds = new Set();
+  const languages = new Map(); // tweet ID -> X language code
 
   const style = document.createElement("style");
   style.id = "hvu-style";
@@ -73,6 +75,18 @@
     return false;
   }
 
+  function isForeignLanguage(article) {
+    const knownForeign = (language) =>
+      !!language && !["ja", "und", "qme", "zxx"].includes(language.toLowerCase());
+
+    const text = article.querySelector('[data-testid="tweetText"][lang]');
+    const domLanguage = text?.getAttribute("lang");
+    if (domLanguage) return knownForeign(domLanguage);
+
+    const id = tweetId(article);
+    return knownForeign(id && languages.get(id));
+  }
+
   function routeStatusId() {
     const match = location.pathname.match(/^\/(?:[A-Za-z0-9_]{1,15}|i\/web)\/status\/(\d+)(?:\/|$)/);
     return match ? match[1] : null;
@@ -86,6 +100,7 @@
       const linkedPost = linkedTweetId && hasTweetId(article, linkedTweetId);
       const filtered = !linkedPost && (
         (isHiding && isPaid(article)) ||
+        (hideForeignLanguage && isForeignLanguage(article)) ||
         (!linkedTweetId && hideAiGenerated && isAiGenerated(article))
       );
       if (filtered) {
@@ -136,6 +151,12 @@
         changed = true;
       }
     }
+    for (const id in (data.languages || {})) {
+      if (languages.get(id) !== data.languages[id]) {
+        languages.set(id, data.languages[id]);
+        changed = true;
+      }
+    }
     if (changed) schedule();
   });
 
@@ -143,16 +164,18 @@
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "sync" && (changes.isHiding || changes.hideAiGenerated)) {
+    if (area === "sync" && (changes.isHiding || changes.hideAiGenerated || changes.hideForeignLanguage)) {
       if (changes.isHiding) isHiding = !!changes.isHiding.newValue;
       if (changes.hideAiGenerated) hideAiGenerated = !!changes.hideAiGenerated.newValue;
+      if (changes.hideForeignLanguage) hideForeignLanguage = !!changes.hideForeignLanguage.newValue;
       apply();
     }
   });
 
-  chrome.storage.sync.get(["isHiding", "hideAiGenerated"], (storage) => {
+  chrome.storage.sync.get(["isHiding", "hideAiGenerated", "hideForeignLanguage"], (storage) => {
     isHiding = !!storage.isHiding;
     hideAiGenerated = !!storage.hideAiGenerated;
+    hideForeignLanguage = !!storage.hideForeignLanguage;
     apply();
   });
 })();

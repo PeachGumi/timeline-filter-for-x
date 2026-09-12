@@ -13,6 +13,11 @@ An independent popup option can also hide posts carrying X's **Made with AI**
 label. It is off by default. On an individual post page, the linked post itself
 remains visible while paid verified replies are still filtered.
 
+Another independent option hides posts that X explicitly classifies as a
+non-Japanese language. Japanese and unknown-language posts remain visible. It
+uses the same page scope as the paid-verification filter: the linked post on an
+individual status page stays visible, while matching replies are filtered.
+
 The blue badge in the page looks identical regardless of *why* it was granted —
 the paid/not-paid distinction only exists in X's API data. So the extension reads
 X's own API responses to classify each account, then hides only the paid ones.

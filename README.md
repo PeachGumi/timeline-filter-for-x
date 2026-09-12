@@ -9,6 +9,9 @@ leaves other checkmarks alone:
 - **Legacy notable** verified accounts — shown
 - 🔵 **Paid blue (X Premium individual)** — hidden
 
+An independent popup option can also hide posts carrying X's **Made with AI**
+label. It is off by default. Individual post pages remain unfiltered.
+
 The blue badge in the page looks identical regardless of *why* it was granted —
 the paid/not-paid distinction only exists in X's API data. So the extension reads
 X's own API responses to classify each account, then hides only the paid ones.

@@ -23,6 +23,9 @@
         display: flex;
         justify-content: space-between;
       }
+      .row + .row {
+        margin-top: 12px;
+      }
       .count {
         font-size: 13px;
         color: #536471;
@@ -82,6 +85,13 @@
       <span>Hiding paid-verified posts</span>
       <label class="toggle">
         <input type="checkbox" id="toggleSwitch" />
+        <span class="slider round"></span>
+      </label>
+    </div>
+    <div class="row">
+      <span>Hide posts labeled “Made with AI”</span>
+      <label class="toggle">
+        <input type="checkbox" id="hideAiGenerated" />
         <span class="slider round"></span>
       </label>
     </div>

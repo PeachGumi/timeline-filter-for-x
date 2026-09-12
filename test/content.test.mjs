@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-function makeArticle({ handle = '', mediaMarker = false, adWrapper = false } = {}) {
+function makeArticle({ handle = '', tweetId = '', aiLabel = '', mediaMarker = false, adWrapper = false } = {}) {
   const classes = new Set();
   const header = {
     querySelectorAll: () => handle ? [{ getAttribute: () => `/${handle}` }] : [],
@@ -17,15 +17,28 @@ function makeArticle({ handle = '', mediaMarker = false, adWrapper = false } = {
     },
     closest: (selector) =>
       selector === '[data-testid="placementTracking"]' && adWrapper ? {} : null,
+    querySelectorAll: (selector) => {
+      if (selector === '[aria-label], span' && aiLabel) {
+        return [{
+          textContent: aiLabel,
+          getAttribute: () => null,
+          closest: () => null,
+        }];
+      }
+      return [];
+    },
     querySelector: (selector) => {
       if (selector === '[data-testid="User-Name"]') return header;
       if (selector === '[data-testid="placementTracking"]' && mediaMarker) return {};
+      if (selector === 'time' && tweetId) {
+        return { closest: () => ({ getAttribute: () => `/${handle}/status/${tweetId}` }) };
+      }
       return null;
     },
   };
 }
 
-function runContent({ pathname = '/home', articles, users }) {
+function runContent({ pathname = '/home', articles, users = {}, storage = { isHiding: true }, messageData = {} }) {
   const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
   let messageHandler;
   const context = {
@@ -33,7 +46,7 @@ function runContent({ pathname = '/home', articles, users }) {
       storage: {
         local: { set() {} },
         onChanged: { addListener() {} },
-        sync: { get(_key, callback) { callback({ isHiding: true }); } },
+        sync: { get(_key, callback) { callback(storage); } },
       },
     },
     console,
@@ -57,7 +70,7 @@ function runContent({ pathname = '/home', articles, users }) {
   };
   context.window.window = context.window;
   vm.runInNewContext(source, context);
-  messageHandler({ source: context.window, data: { source: 'hvu', users } });
+  messageHandler({ source: context.window, data: { source: 'hvu', users, ...messageData } });
 }
 
 test('hides a paid account but keeps an unverified placement-tracked video', () => {
@@ -81,4 +94,33 @@ test('keeps paid posts visible on an individual status page', () => {
   });
 
   assert.equal(paidPost.classList.contains('hvu-hidden'), false);
+});
+
+test('hides AI-labeled posts only when the option is enabled', () => {
+  const enabledPost = makeArticle({ handle: 'ner2048', tweetId: '2098607063819767842' });
+  runContent({
+    articles: [enabledPost],
+    storage: { isHiding: false, hideAiGenerated: true },
+    messageData: { aiPosts: { '2098607063819767842': true } },
+  });
+
+  const disabledPost = makeArticle({ handle: 'ner2048', tweetId: '2098607063819767842' });
+  runContent({
+    articles: [disabledPost],
+    storage: { isHiding: true, hideAiGenerated: false },
+    messageData: { aiPosts: { '2098607063819767842': true } },
+  });
+
+  assert.equal(enabledPost.classList.contains('hvu-hidden'), true);
+  assert.equal(disabledPost.classList.contains('hvu-hidden'), false);
+});
+
+test('recognizes the visible Japanese AI label when API data is absent', () => {
+  const aiPost = makeArticle({ handle: 'ner2048', tweetId: '2098607063819767842', aiLabel: 'AIで生成' });
+  runContent({
+    articles: [aiPost],
+    storage: { isHiding: true, hideAiGenerated: true },
+  });
+
+  assert.equal(aiPost.classList.contains('hvu-hidden'), true);
 });

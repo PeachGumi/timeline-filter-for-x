@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Hide Verified Users on X (Fixed)",
-  "version": "2.1.3",
-  "description": "Hides posts from accounts that pay for X Premium (blue check) on X / Twitter.",
+  "version": "2.2.0",
+  "description": "Hides paid X Premium posts and optionally posts labeled Made with AI on X / Twitter.",
   "icons": {
     "48": "icon.png"
   },

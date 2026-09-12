@@ -14,8 +14,10 @@
   const log = (...a) => DEBUG() && console.log("[HVU/content]", ...a);
 
   let isHiding = false;
+  let hideAiGenerated = false;
   let blockedCount = 0;
   const status = new Map(); // lowercased handle -> "paid" | "other"
+  const aiPostIds = new Set();
 
   const style = document.createElement("style");
   style.id = "hvu-style";
@@ -42,6 +44,26 @@
     return handle ? status.get(handle) === "paid" : false;
   }
 
+  function tweetId(article) {
+    const time = article.querySelector("time");
+    const href = time && time.closest('a[href*="/status/"]')?.getAttribute("href");
+    const match = href && href.match(/\/status\/(\d+)/);
+    return match ? match[1] : null;
+  }
+
+  function isAiGenerated(article) {
+    const id = tweetId(article);
+    if (id && aiPostIds.has(id)) return true;
+
+    const labels = new Set(["AIで生成", "AI生成", "Made with AI", "AI-generated"]);
+    for (const element of article.querySelectorAll('[aria-label], span')) {
+      if (element.closest('[data-testid="tweetText"]')) continue;
+      const text = (element.getAttribute("aria-label") || element.textContent || "").trim();
+      if (labels.has(text)) return true;
+    }
+    return false;
+  }
+
   function isIndividualStatusPage() {
     return /^\/(?:[A-Za-z0-9_]{1,15}|i\/web)\/status\/\d+(?:\/|$)/.test(location.pathname);
   }
@@ -51,8 +73,11 @@
     const statusPage = isIndividualStatusPage();
     let count = 0;
     articles.forEach((article) => {
-      const paid = !statusPage && isPaid(article);
-      if (isHiding && paid) {
+      const filtered = !statusPage && (
+        (isHiding && isPaid(article)) ||
+        (hideAiGenerated && isAiGenerated(article))
+      );
+      if (filtered) {
         article.classList.add(HIDE_CLASS);
         count++;
       } else {
@@ -82,15 +107,21 @@
     });
   }
 
-  // Verification data arriving from the MAIN-world interceptor.
+  // Verification and AI-label data arriving from the MAIN-world interceptor.
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.source !== "hvu" || !data.users) return;
+    if (!data || data.source !== "hvu") return;
     let changed = false;
-    for (const handle in data.users) {
+    for (const handle in (data.users || {})) {
       if (status.get(handle) !== data.users[handle]) {
         status.set(handle, data.users[handle]);
+        changed = true;
+      }
+    }
+    for (const id in (data.aiPosts || {})) {
+      if (data.aiPosts[id] && !aiPostIds.has(id)) {
+        aiPostIds.add(id);
         changed = true;
       }
     }
@@ -101,14 +132,16 @@
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "sync" && changes.isHiding) {
-      isHiding = !!changes.isHiding.newValue;
+    if (area === "sync" && (changes.isHiding || changes.hideAiGenerated)) {
+      if (changes.isHiding) isHiding = !!changes.isHiding.newValue;
+      if (changes.hideAiGenerated) hideAiGenerated = !!changes.hideAiGenerated.newValue;
       apply();
     }
   });
 
-  chrome.storage.sync.get("isHiding", (storage) => {
+  chrome.storage.sync.get(["isHiding", "hideAiGenerated"], (storage) => {
     isHiding = !!storage.isHiding;
+    hideAiGenerated = !!storage.hideAiGenerated;
     apply();
   });
 })();

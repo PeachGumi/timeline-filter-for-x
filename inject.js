@@ -56,13 +56,18 @@
   }
 
   const seen = new Map(); // handle -> status, to avoid re-posting duplicates
+  const seenAiPosts = new Set();
 
-  // Recursively walk a parsed response, collecting any User-shaped objects.
-  function harvest(node, out, depth) {
+  // Recursively walk a parsed response, collecting User and AI-label data.
+  function harvest(node, userOut, aiOut, depth) {
     if (!node || typeof node !== "object" || depth > 40) return;
     if (Array.isArray(node)) {
-      for (const item of node) harvest(item, out, depth + 1);
+      for (const item of node) harvest(item, userOut, aiOut, depth + 1);
       return;
+    }
+    if (node.made_with_ai === true || node.madeWithAi === true) {
+      const id = String(node.rest_id || node.id_str || node.tweet_id || node.id || "");
+      if (/^\d{5,}$/.test(id)) aiOut.push(id);
     }
     const hasUserShape =
       "is_blue_verified" in node ||
@@ -72,11 +77,11 @@
       (node.legacy && typeof node.legacy === "object" && "screen_name" in node.legacy);
     if (hasUserShape) {
       const result = classify(node);
-      if (result) out.push(result);
+      if (result) userOut.push(result);
     }
     for (const key in node) {
       const val = node[key];
-      if (val && typeof val === "object") harvest(val, out, depth + 1);
+      if (val && typeof val === "object") harvest(val, userOut, aiOut, depth + 1);
     }
   }
 
@@ -93,19 +98,27 @@
     }
     if (!data || typeof data !== "object") return;
     const found = [];
-    harvest(data, found, 0);
+    const foundAiPosts = [];
+    harvest(data, found, foundAiPosts, 0);
     const updates = {};
+    const aiPosts = {};
     for (const { handle, status } of found) {
       if (seen.get(handle) !== status) {
         seen.set(handle, status);
         updates[handle] = status;
       }
     }
+    for (const id of foundAiPosts) {
+      if (!seenAiPosts.has(id)) {
+        seenAiPosts.add(id);
+        aiPosts[id] = true;
+      }
+    }
     if (found.length) log("scanned response:", found.length, "users,", Object.keys(updates).length, "new");
-    if (Object.keys(updates).length) {
+    if (Object.keys(updates).length || Object.keys(aiPosts).length) {
       const paid = Object.entries(updates).filter(([, s]) => s === "paid").map(([h]) => h);
       if (paid.length) log("paid handles:", paid.join(", "));
-      window.postMessage({ source: "hvu", users: updates }, "*");
+      window.postMessage({ source: "hvu", users: updates, aiPosts }, "*");
     }
   }
 

@@ -46,6 +46,7 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks =
     },
     querySelector: (selector) => {
       if (selector === '[data-testid="User-Name"]') return header;
+      if (selector === 'div[dir="auto"]' && text) return { textContent: text };
       if (selector === '[data-testid="placementTracking"]' && mediaMarker) return {};
       if (selector === 'time' && tweetId && !statusLinkOnly) {
         return { closest: () => ({ getAttribute: () => `/${handle}/status/${tweetId}` }) };
@@ -55,14 +56,15 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks =
   };
 }
 
-function runContent({ pathname = '/home', articles, users = {}, storage = { isHiding: true }, messageData = {}, detectedLanguage = null }) {
+function runContent({ pathname = '/home', articles, users = {}, storage = { isHiding: true }, messageData = {}, detectedLanguage = null, detectedResult = null }) {
   const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
   let messageHandler;
   const context = {
     chrome: {
       i18n: {
         detectLanguage(_text, callback) {
-          if (detectedLanguage) setImmediate(() => callback({ isReliable: true, languages: [{ language: detectedLanguage, percentage: 100 }] }));
+          const result = detectedResult || (detectedLanguage && { isReliable: true, languages: [{ language: detectedLanguage, percentage: 100 }] });
+          if (result) setImmediate(() => callback(result));
         },
       },
       storage: {
@@ -205,6 +207,33 @@ test('locally detects foreign text when X provides no language metadata', async 
   await new Promise(resolve => setImmediate(resolve));
 
   assert.equal(foreignPost.classList.contains('hvu-hidden'), true);
+});
+
+test('locally detects a foreign article before X adds its status link', async () => {
+  const foreignPost = makeArticle({
+    handle: 'richharvin',
+    text: 'Lil Durk is out!! 🎉',
+  });
+  runContent({
+    articles: [foreignPost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    detectedResult: { isReliable: false, languages: [{ language: 'en', percentage: 100 }] },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(foreignPost.classList.contains('hvu-hidden'), true);
+});
+
+test('does not hide short kanji-only Japanese text on an unreliable local result', async () => {
+  const japanesePost = makeArticle({ handle: 'jp_user', text: '東京株式市場' });
+  runContent({
+    articles: [japanesePost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    detectedResult: { isReliable: false, languages: [{ language: 'zh', percentage: 100 }] },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(japanesePost.classList.contains('hvu-hidden'), false);
 });
 
 test('uses the outer author status ID instead of a quoted post ID', () => {

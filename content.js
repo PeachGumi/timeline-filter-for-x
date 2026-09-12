@@ -20,8 +20,8 @@
   const status = new Map(); // lowercased handle -> "paid" | "other"
   const aiPostIds = new Set();
   const languages = new Map(); // tweet ID -> X language code
-  const localLanguages = new Map();
-  const pendingLanguageIds = new Set();
+  const localLanguages = new WeakMap(); // article -> { body, language }
+  const pendingLanguageBodies = new WeakMap(); // article -> body being detected
 
   const style = document.createElement("style");
   style.id = "hvu-style";
@@ -93,41 +93,74 @@
     return false;
   }
 
-  function isForeignLanguage(article) {
-    const knownForeign = (language) =>
-      !!language && !["ja", "und", "qme", "zxx"].includes(language.toLowerCase());
+  function postText(article) {
+    return (
+      article.querySelector('[data-testid="tweetText"]')?.textContent ||
+      article.querySelector('div[dir="auto"]')?.textContent ||
+      article.innerText ||
+      ""
+    ).trim();
+  }
 
+  function languageClassification(language) {
+    if (!language) return null;
+    const normalized = language.toLowerCase();
+    if (["und", "qme", "zxx"].includes(normalized)) return null;
+    return normalized !== "ja";
+  }
+
+  function acceptedDetectedLanguage(body, result) {
+    const top = result?.languages?.[0];
+    if (!top?.language) return null;
+    if (/\p{Script=Hiragana}|\p{Script=Katakana}/u.test(body)) return "ja";
+    if (result.isReliable || top.language.toLowerCase() === "ja") {
+      return top.language.toLowerCase();
+    }
+
+    const distinctiveForeignScript = /\p{Script=Thai}|\p{Script=Hangul}|\p{Script=Cyrillic}|\p{Script=Arabic}|\p{Script=Hebrew}|\p{Script=Devanagari}|\p{Script=Greek}|\p{Script=Bengali}|\p{Script=Tamil}|\p{Script=Telugu}/u;
+    if (distinctiveForeignScript.test(body)) return top.language.toLowerCase();
+
+    const latinWords = body.match(/\p{Script=Latin}{2,}/gu) || [];
+    const latinLetters = (body.match(/\p{Script=Latin}/gu) || []).length;
+    if (latinWords.length >= 3 && latinLetters >= 10 && top.percentage >= 70) {
+      return top.language.toLowerCase();
+    }
+    return null;
+  }
+
+  function isForeignLanguage(article) {
     const text = article.querySelector('[data-testid="tweetText"][lang]');
-    const domLanguage = text?.getAttribute("lang");
-    if (domLanguage) return knownForeign(domLanguage);
+    const domClassification = languageClassification(text?.getAttribute("lang"));
+    if (domClassification !== null) return domClassification;
 
     const id = tweetId(article);
-    const apiLanguage = id && languages.get(id);
-    if (apiLanguage) return knownForeign(apiLanguage);
+    const apiClassification = languageClassification(id && languages.get(id));
+    if (apiClassification !== null) return apiClassification;
 
-    const localLanguage = id && localLanguages.get(id);
-    if (localLanguage) return knownForeign(localLanguage);
+    const body = postText(article);
+    const localResult = localLanguages.get(article);
+    if (localResult?.body === body) {
+      return languageClassification(localResult.language) === true;
+    }
 
-    if (id && !pendingLanguageIds.has(id) && chrome.i18n?.detectLanguage) {
-      const body = (
-        article.querySelector('[data-testid="tweetText"]')?.textContent ||
-        article.innerText ||
-        ""
-      ).trim();
-      if (body.length >= 4) {
-        pendingLanguageIds.add(id);
-        try {
-          chrome.i18n.detectLanguage(body, (result) => {
-            pendingLanguageIds.delete(id);
-            const top = result?.languages?.[0];
-            if (top && (result.isReliable || top.percentage >= 70)) {
-              localLanguages.set(id, top.language.toLowerCase());
-              schedule();
-            }
-          });
-        } catch (_) {
-          pendingLanguageIds.delete(id);
-        }
+    if (
+      body.length >= 4 &&
+      pendingLanguageBodies.get(article) !== body &&
+      chrome.i18n?.detectLanguage
+    ) {
+      pendingLanguageBodies.set(article, body);
+      try {
+        chrome.i18n.detectLanguage(body, (result) => {
+          if (pendingLanguageBodies.get(article) !== body) return;
+          pendingLanguageBodies.delete(article);
+          const language = acceptedDetectedLanguage(body, result);
+          if (language) {
+            localLanguages.set(article, { body, language });
+            schedule();
+          }
+        });
+      } catch (_) {
+        pendingLanguageBodies.delete(article);
       }
     }
     return false;

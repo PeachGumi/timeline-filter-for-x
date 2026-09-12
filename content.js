@@ -42,11 +42,16 @@
     return handle ? status.get(handle) === "paid" : false;
   }
 
+  function isIndividualStatusPage() {
+    return /^\/(?:[A-Za-z0-9_]{1,15}|i\/web)\/status\/\d+(?:\/|$)/.test(location.pathname);
+  }
+
   function apply() {
     const articles = document.querySelectorAll(TWEET_SELECTOR);
+    const statusPage = isIndividualStatusPage();
     let count = 0;
     articles.forEach((article) => {
-      const paid = isPaid(article);
+      const paid = !statusPage && isPaid(article);
       if (isHiding && paid) {
         article.classList.add(HIDE_CLASS);
         count++;

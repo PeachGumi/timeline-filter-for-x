@@ -25,13 +25,9 @@ function makeArticle({ handle = '', mediaMarker = false, adWrapper = false } = {
   };
 }
 
-test('hides a paid account but keeps an unverified placement-tracked video', () => {
-  const normalVideo = makeArticle({ handle: 'love___not_', mediaMarker: true, adWrapper: true });
-  const paidPost = makeArticle({ handle: 'paid_user' });
-  const articles = [normalVideo, paidPost];
+function runContent({ pathname = '/home', articles, users }) {
   const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
   let messageHandler;
-
   const context = {
     chrome: {
       storage: {
@@ -48,6 +44,7 @@ test('hides a paid account but keeps an unverified placement-tracked video', () 
       querySelectorAll: (selector) => selector === 'article' ? articles : [],
     },
     localStorage: { getItem: () => null },
+    location: { pathname },
     Map,
     MutationObserver: class { observe() {} },
     requestAnimationFrame: (callback) => callback(),
@@ -59,13 +56,29 @@ test('hides a paid account but keeps an unverified placement-tracked video', () 
     },
   };
   context.window.window = context.window;
-
   vm.runInNewContext(source, context);
-  messageHandler({
-    source: context.window,
-    data: { source: 'hvu', users: { paid_user: 'paid', love___not_: 'other' } },
+  messageHandler({ source: context.window, data: { source: 'hvu', users } });
+}
+
+test('hides a paid account but keeps an unverified placement-tracked video', () => {
+  const normalVideo = makeArticle({ handle: 'love___not_', mediaMarker: true, adWrapper: true });
+  const paidPost = makeArticle({ handle: 'paid_user' });
+  runContent({
+    articles: [normalVideo, paidPost],
+    users: { paid_user: 'paid', love___not_: 'other' },
   });
 
   assert.equal(normalVideo.classList.contains('hvu-hidden'), false);
   assert.equal(paidPost.classList.contains('hvu-hidden'), true);
+});
+
+test('keeps paid posts visible on an individual status page', () => {
+  const paidPost = makeArticle({ handle: 'paid_user' });
+  runContent({
+    pathname: '/paid_user/status/2098574607339159828',
+    articles: [paidPost],
+    users: { paid_user: 'paid' },
+  });
+
+  assert.equal(paidPost.classList.contains('hvu-hidden'), false);
 });

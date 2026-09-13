@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks = null, statusLinkOnly = false, text = '', textContainer = true, collapseTextWhenHidden = false, aiLabel = '', mediaMarker = false, adWrapper = false } = {}) {
+function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks = null, statusLinkOnly = false, text = '', textContainer = true, collapseTextWhenHidden = false, aiLabel = '', translationSource = '', quotedTranslationSource = '', mediaMarker = false, adWrapper = false } = {}) {
   const classes = new Set();
   const header = {
     querySelectorAll: () => handle ? [{ getAttribute: () => `/${handle}` }] : [],
@@ -38,12 +38,20 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks =
           getAttribute: () => `/${handle}/status/${id}`,
         }));
       }
-      if (selector === '[aria-label], span' && aiLabel) {
-        return [{
-          textContent: aiLabel,
+      if (selector === '[aria-label], span') {
+        const elements = [];
+        if (aiLabel) elements.push({ textContent: aiLabel, getAttribute: () => null, closest: () => null });
+        if (translationSource) elements.push({
+          textContent: `${translationSource}からの翻訳`,
           getAttribute: () => null,
           closest: () => null,
-        }];
+        });
+        if (quotedTranslationSource) elements.push({
+          textContent: `${quotedTranslationSource}からの翻訳`,
+          getAttribute: () => null,
+          closest: (closestSelector) => closestSelector === '[role="link"]' ? {} : null,
+        });
+        return elements;
       }
       return [];
     },
@@ -179,6 +187,38 @@ test('keeps the linked foreign post visible but filters foreign replies', () => 
 
   assert.equal(linkedPost.classList.contains('hvu-hidden'), false);
   assert.equal(foreignReply.classList.contains('hvu-hidden'), true);
+});
+
+test('hides an X-translated foreign post even when the visible text is Japanese', () => {
+  const translatedPost = makeArticle({
+    handle: 'OutofOces',
+    tweetId: '2098805946738774191',
+    text: 'タッチコントロールを使うくらいなら、親指を切断してもらった方がマシだ。',
+    translationSource: 'スペイン語',
+  });
+  runContent({
+    articles: [translatedPost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    detectedLanguage: 'ja',
+  });
+
+  assert.equal(translatedPost.classList.contains('hvu-hidden'), true);
+});
+
+test('does not classify a Japanese outer post from a translated quote label', () => {
+  const japaneseQuotePost = makeArticle({
+    handle: 'jp_user',
+    tweetId: '2098805946738774192',
+    text: 'これは日本語の投稿です。',
+    quotedTranslationSource: '英語',
+  });
+  runContent({
+    articles: [japaneseQuotePost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    detectedLanguage: 'ja',
+  });
+
+  assert.equal(japaneseQuotePost.classList.contains('hvu-hidden'), false);
 });
 
 test('hides a foreign post whose modern X markup has a status link but no time element', () => {

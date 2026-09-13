@@ -102,6 +102,18 @@
     ).trim();
   }
 
+  function isTranslatedFromForeignLanguage(article) {
+    for (const element of article.querySelectorAll('[aria-label], span')) {
+      if (element.closest('[role="link"]')) continue;
+      const label = (element.getAttribute("aria-label") || element.textContent || "").trim();
+      const japaneseLabel = label.match(/^([^\s]{1,24}語)からの翻訳$/);
+      if (japaneseLabel) return japaneseLabel[1] !== "日本語";
+      const englishLabel = label.match(/^Translated from (.{1,32})$/i);
+      if (englishLabel) return englishLabel[1].toLowerCase() !== "japanese";
+    }
+    return false;
+  }
+
   function languageClassification(language) {
     if (!language) return null;
     const normalized = language.toLowerCase();
@@ -129,6 +141,8 @@
   }
 
   function isForeignLanguage(article) {
+    if (isTranslatedFromForeignLanguage(article)) return true;
+
     const text = article.querySelector('[data-testid="tweetText"][lang]');
     const domClassification = languageClassification(text?.getAttribute("lang"));
     if (domClassification !== null) return domClassification;

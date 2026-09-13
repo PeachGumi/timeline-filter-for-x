@@ -1,4 +1,4 @@
-// Hide Verified Users on X — content script (isolated world)
+// Timeline Filter for X — content script (isolated world)
 // Hides posts from accounts that PAY for verification (X Premium individuals),
 // while leaving gold (Business), grey (Government) and legacy badges alone.
 //
@@ -203,12 +203,7 @@
         article.classList.remove(HIDE_CLASS);
       }
     });
-    if (count !== blockedCount) {
-      blockedCount = count;
-      try {
-        chrome.storage.local.set({ blockedCount });
-      } catch (_) {}
-    }
+    blockedCount = count;
     if (DEBUG()) {
       const handles = [...articles].map(authorHandle).filter(Boolean);
       log(`apply: hiding=${isHiding}, ${articles.length} posts, ${count} hidden, ${status.size} classified handles`);
@@ -226,31 +221,49 @@
     });
   }
 
+  function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
   // Verification and AI-label data arriving from the MAIN-world interceptor.
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
     if (!data || data.source !== "hvu") return;
     let changed = false;
-    for (const handle in (data.users || {})) {
-      if (status.get(handle) !== data.users[handle]) {
-        status.set(handle, data.users[handle]);
+    const users = isRecord(data.users) ? data.users : {};
+    const aiPosts = isRecord(data.aiPosts) ? data.aiPosts : {};
+    const incomingLanguages = isRecord(data.languages) ? data.languages : {};
+    for (const handle in users) {
+      const normalizedHandle = handle.toLowerCase();
+      const value = users[handle];
+      if (!/^[a-z0-9_]{1,15}$/.test(normalizedHandle) || !["paid", "other"].includes(value)) continue;
+      if (status.get(normalizedHandle) !== value) {
+        status.set(normalizedHandle, value);
         changed = true;
       }
     }
-    for (const id in (data.aiPosts || {})) {
-      if (data.aiPosts[id] && !aiPostIds.has(id)) {
+    for (const id in aiPosts) {
+      if (/^\d{5,}$/.test(id) && aiPosts[id] === true && !aiPostIds.has(id)) {
         aiPostIds.add(id);
         changed = true;
       }
     }
-    for (const id in (data.languages || {})) {
-      if (languages.get(id) !== data.languages[id]) {
-        languages.set(id, data.languages[id]);
+    for (const id in incomingLanguages) {
+      const language = incomingLanguages[id];
+      if (!/^\d{5,}$/.test(id) || typeof language !== "string" || !/^[a-z0-9-]{1,32}$/i.test(language)) continue;
+      const normalizedLanguage = language.toLowerCase();
+      if (languages.get(id) !== normalizedLanguage) {
+        languages.set(id, normalizedLanguage);
         changed = true;
       }
     }
     if (changed) schedule();
+  });
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "tfx-get-blocked-count") return;
+    sendResponse({ blockedCount });
   });
 
   const observer = new MutationObserver(schedule);

@@ -1,0 +1,15 @@
+{
+  "name": "timeline-filter-for-x",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Locally filter X/Twitter posts by paid verification, AI labels, and language.",
+  "license": "CC0-1.0",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check content.js && node --check inject.js && node --check popup.js && python3 -m json.tool manifest.json >/dev/null && python3 scripts/validate.py",
+    "package": "python3 scripts/package.py"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

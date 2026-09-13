@@ -36,6 +36,7 @@ test('a partial duplicate cannot overwrite an explicit paid classification', asy
     localStorage: { getItem: () => null },
     Map,
     Object,
+    URL,
     window,
     XMLHttpRequest: FakeXHR,
   };
@@ -72,6 +73,7 @@ test('forwards made_with_ai post IDs to the content script', async () => {
     localStorage: { getItem: () => null },
     Map,
     Object,
+    URL,
     window,
     XMLHttpRequest: FakeXHR,
   };
@@ -108,6 +110,7 @@ test('forwards tweet language codes to the content script', async () => {
     localStorage: { getItem: () => null },
     Map,
     Object,
+    URL,
     window,
     XMLHttpRequest: FakeXHR,
   };
@@ -119,4 +122,40 @@ test('forwards tweet language codes to the content script', async () => {
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].languages['2098600810179358878'], 'pt');
+});
+
+test('does not inspect cross-origin API responses requested by the X page', async () => {
+  const messages = [];
+  let cloned = false;
+  const response = {
+    url: 'https://analytics.example/api/events',
+    clone: () => {
+      cloned = true;
+      return { text: async () => JSON.stringify({
+        core: { screen_name: 'not_x_data' },
+        is_blue_verified: true,
+      }) };
+    },
+  };
+  const window = {
+    fetch: async () => response,
+    postMessage: message => messages.push(message),
+  };
+  const context = {
+    console,
+    localStorage: { getItem: () => null },
+    Map,
+    Object,
+    URL,
+    window,
+    XMLHttpRequest: FakeXHR,
+  };
+
+  const source = fs.readFileSync(new URL('../inject.js', import.meta.url), 'utf8');
+  vm.runInNewContext(source, context);
+  await window.fetch('https://analytics.example/api/events');
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(cloned, false);
+  assert.equal(messages.length, 0);
 });

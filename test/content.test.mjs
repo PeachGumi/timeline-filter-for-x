@@ -70,6 +70,7 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks =
 function runContent({ pathname = '/home', articles, users = {}, storage = { isHiding: true }, messageData = {}, detectedLanguage = null, detectedResult = null }) {
   const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
   let messageHandler;
+  let runtimeMessageHandler;
   const context = {
     chrome: {
       i18n: {
@@ -82,6 +83,9 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
         local: { set() {} },
         onChanged: { addListener() {} },
         sync: { get(_key, callback) { callback(storage); } },
+      },
+      runtime: {
+        onMessage: { addListener(handler) { runtimeMessageHandler = handler; } },
       },
     },
     console,
@@ -106,7 +110,13 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
   context.window.window = context.window;
   vm.runInNewContext(source, context);
   messageHandler({ source: context.window, data: { source: 'hvu', users, ...messageData } });
-  return (data) => messageHandler({ source: context.window, data: { source: 'hvu', ...data } });
+  const dispatch = (data) => messageHandler({ source: context.window, data: { source: 'hvu', ...data } });
+  dispatch.runtimeMessage = (message) => {
+    let response;
+    runtimeMessageHandler(message, {}, (value) => { response = value; });
+    return response;
+  };
+  return dispatch;
 }
 
 test('hides a paid account but keeps an unverified placement-tracked video', () => {
@@ -119,6 +129,16 @@ test('hides a paid account but keeps an unverified placement-tracked video', () 
 
   assert.equal(normalVideo.classList.contains('hvu-hidden'), false);
   assert.equal(paidPost.classList.contains('hvu-hidden'), true);
+});
+
+test('reports the hidden count to the popup for this tab', () => {
+  const paidPost = makeArticle({ handle: 'paid_user' });
+  const dispatch = runContent({ articles: [paidPost], users: { paid_user: 'paid' } });
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(dispatch.runtimeMessage({ type: 'tfx-get-blocked-count' }))),
+    { blockedCount: 1 },
+  );
 });
 
 test('keeps the linked post visible but filters paid replies on a status page', () => {

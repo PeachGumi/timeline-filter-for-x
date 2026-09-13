@@ -1,13 +1,14 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
   <head>
     <meta charset="utf-8" />
+    <title>Timeline Filter for X</title>
     <style>
       body {
         font-family: -apple-system, "Segoe UI", Arial, sans-serif;
         margin: 16px;
         width: 280px;
-        color: #0f1419;
+        color: #263640;
       }
       h1 {
         font-size: 16px;
@@ -15,7 +16,7 @@
       }
       p {
         font-size: 13px;
-        color: #536471;
+        color: #61717a;
         margin: 0 0 16px;
       }
       .row {
@@ -28,11 +29,11 @@
       }
       .count {
         font-size: 13px;
-        color: #536471;
+        color: #61717a;
         margin-top: 14px;
       }
       .count b {
-        color: #1d9bf0;
+        color: #9b6d3c;
       }
       .toggle {
         display: inline-block;
@@ -41,10 +42,17 @@
         width: 44px;
       }
       .toggle input {
-        display: none;
+        height: 1px;
+        opacity: 0;
+        position: absolute;
+        width: 1px;
+      }
+      .toggle input:focus-visible + .slider {
+        outline: 2px solid #263640;
+        outline-offset: 2px;
       }
       .slider {
-        background-color: #ccc;
+        background-color: #c4c8ca;
         bottom: 0;
         cursor: pointer;
         left: 0;
@@ -64,7 +72,7 @@
         width: 16px;
       }
       input:checked + .slider {
-        background-color: #1d9bf0;
+        background-color: #b88955;
       }
       input:checked + .slider:before {
         transform: translateX(22px);
@@ -78,31 +86,30 @@
     </style>
   </head>
   <body>
-    <h1>Hide Paid Verified Users</h1>
-    <p>Hides posts from accounts that pay for X Premium. Gold (business), grey
-      (government) and legacy badges are left alone.</p>
+    <h1>Timeline Filter for X</h1>
+    <p>Xのタイムラインから、指定した条件に合う投稿を非表示にします。</p>
     <div class="row">
-      <span>Hiding paid-verified posts</span>
+      <span>有料青バッジの投稿</span>
       <label class="toggle">
-        <input type="checkbox" id="toggleSwitch" />
+        <input type="checkbox" id="toggleSwitch" aria-label="有料青バッジの投稿を非表示" />
         <span class="slider round"></span>
       </label>
     </div>
     <div class="row">
-      <span>Hide posts labeled “Made with AI”</span>
+      <span>AI生成ラベル付き投稿</span>
       <label class="toggle">
-        <input type="checkbox" id="hideAiGenerated" />
+        <input type="checkbox" id="hideAiGenerated" aria-label="AI生成ラベル付き投稿を非表示" />
         <span class="slider round"></span>
       </label>
     </div>
     <div class="row">
-      <span>Hide non-Japanese posts</span>
+      <span>日本語以外の投稿</span>
       <label class="toggle">
-        <input type="checkbox" id="hideForeignLanguage" />
+        <input type="checkbox" id="hideForeignLanguage" aria-label="日本語以外の投稿を非表示" />
         <span class="slider round"></span>
       </label>
     </div>
-    <div class="count">Hidden on this page: <b id="count">0</b></div>
+    <div class="count">このページで非表示: <b id="count">0</b>件</div>
     <script src="popup.js"></script>
   </body>
 </html>

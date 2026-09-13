@@ -23,17 +23,15 @@ chrome.storage.sync.get(["isHiding", "hideAiGenerated", "hideForeignLanguage"], 
   foreignToggle.checked = !!storage.hideForeignLanguage;
 });
 
-// Show the current hidden count and keep it live while the popup is open.
+// Ask the active tab so counts from other X tabs cannot overwrite this page.
 function renderCount(value) {
-  countEl.textContent = value || 0;
+  countEl.textContent = Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
-chrome.storage.local.get("blockedCount", (storage) => {
-  renderCount(storage.blockedCount);
-});
-
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.blockedCount) {
-    renderCount(changes.blockedCount.newValue);
-  }
+chrome.tabs.query({ active: true, currentWindow: true }, ([tab] = []) => {
+  if (!Number.isInteger(tab?.id)) return renderCount(0);
+  chrome.tabs.sendMessage(tab.id, { type: "tfx-get-blocked-count" }, (response) => {
+    if (chrome.runtime?.lastError) return renderCount(0);
+    renderCount(response?.blockedCount);
+  });
 });

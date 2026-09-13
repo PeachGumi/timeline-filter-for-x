@@ -136,12 +136,25 @@
     }
   }
 
+  function isXApiUrl(input) {
+    try {
+      const url = new URL(String(input), window.location?.href || "https://x.com/");
+      const host = url.hostname.toLowerCase();
+      const isXHost = host === "x.com" || host.endsWith(".x.com");
+      const isTwitterHost = host === "twitter.com" || host.endsWith(".twitter.com");
+      return url.protocol === "https:" && (isXHost || isTwitterHost) &&
+        (url.pathname.includes("/graphql/") || url.pathname.includes("/api/"));
+    } catch (_) {
+      return false;
+    }
+  }
+
   // --- Patch fetch ---
   const origFetch = window.fetch;
   window.fetch = function (...args) {
     return origFetch.apply(this, args).then((res) => {
       const url = res.url || "";
-      if (url.includes("twitter.com") || url.includes("x.com") || url.includes("/graphql") || url.includes("/api/")) {
+      if (isXApiUrl(url)) {
         res
           .clone()
           .text()
@@ -163,7 +176,7 @@
     this.addEventListener("load", () => {
       try {
         const url = this.__hvuUrl || "";
-        if (!url.includes("/graphql") && !url.includes("/api/")) return;
+        if (!isXApiUrl(url)) return;
         const rt = this.responseType;
         if (rt === "json") {
           process(this.response); // already a parsed object

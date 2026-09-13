@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Timeline Filter for X icon</title>
+  <desc id="desc">Three horizontal filter bars on a dark rounded square</desc>
+  <rect x="4" y="4" width="120" height="120" rx="27" fill="#263640"/>
+  <rect x="24" y="28" width="80" height="14" rx="7" fill="#e5e1d8"/>
+  <rect x="34" y="55" width="60" height="14" rx="7" fill="#c8a06a"/>
+  <rect x="46" y="82" width="36" height="14" rx="7" fill="#e5e1d8"/>
+</svg>

@@ -1,0 +1,23 @@
+# Provenance Notice
+
+Timeline Filter for X is based on “Hide Verified Twitter Users” by the GitHub user `sardistic`:
+
+- Upstream repository: https://github.com/sardistic/Hide-Verified-Twitter-Users
+- Base commit: `d001274cc9e466c0ba229f9600a52755948035e7`
+- Upstream license: CC0 1.0 Universal
+
+The upstream license text is preserved in `LICENSE`. This derivative, including its later modifications, is also released under CC0 1.0 Universal.
+
+Substantial changes in this derivative include:
+
+- distinguishing paid individual verification from business, government, and legacy verification;
+- keeping ordinary video and GIF posts visible;
+- filtering replies while preserving a post opened by its direct URL;
+- optional filters for X's AI-generation labels and non-Japanese posts;
+- handling quote cards, delayed X markup, missing API metadata, and X automatic translation;
+- regression coverage for filtering and visibility stability;
+- a separate product name, interface, documentation, and original icon.
+
+The icon source in `assets/icon-source.svg` was created specifically for this derivative and does not reuse the upstream icon or X Corp. brand marks.
+
+This project is independently maintained. It is not affiliated with, endorsed by, sponsored by, or an official successor to the upstream project, its author, or X Corp. “X” and “Twitter” are used only to identify the compatible service.

@@ -4,10 +4,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
+package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 
 assert manifest["manifest_version"] == 3
 assert manifest["name"] == "Timeline Filter for X"
-assert manifest["version"] == "3.0.0"
+assert manifest["version"] == package["version"]
 assert manifest["permissions"] == ["storage"]
 assert set(manifest["host_permissions"]) == {
     "https://x.com/*",

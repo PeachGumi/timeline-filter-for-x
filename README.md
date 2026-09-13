@@ -16,7 +16,7 @@ X / Twitterのタイムラインで、条件に合う投稿をブラウザ内だ
 
 この拡張はChrome Web Storeでは配布していません。
 
-1. [Releases](https://github.com/PeachGumi/timeline-filter-for-x/releases)から`timeline-filter-for-x-v3.0.0.zip`をダウンロードして展開します。
+1. [Releases](https://github.com/PeachGumi/timeline-filter-for-x/releases)から最新の`timeline-filter-for-x-vX.Y.Z.zip`をダウンロードして展開します。
 2. `brave://extensions`または`chrome://extensions`を開きます。
 3. 「デベロッパー モード」を有効にします。
 4. 「パッケージ化されていない拡張機能を読み込む」から、展開したフォルダを選びます。

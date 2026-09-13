@@ -8,6 +8,7 @@
 (() => {
   const HIDE_CLASS = "hvu-hidden";
   const TWEET_SELECTOR = "article";
+  const MAX_CACHE_ENTRIES = 10_000;
   const DEBUG = () => {
     try { return localStorage.getItem("hvu-debug") === "1"; } catch (_) { return false; }
   };
@@ -22,6 +23,17 @@
   const languages = new Map(); // tweet ID -> X language code
   const localLanguages = new WeakMap(); // article -> { body, language }
   const pendingLanguageBodies = new WeakMap(); // article -> body being detected
+
+  function setBounded(map, key, value) {
+    if (map.has(key)) map.delete(key);
+    while (map.size >= MAX_CACHE_ENTRIES) map.delete(map.keys().next().value);
+    map.set(key, value);
+  }
+
+  function addBounded(set, value) {
+    while (set.size >= MAX_CACHE_ENTRIES) set.delete(set.values().next().value);
+    set.add(value);
+  }
 
   const style = document.createElement("style");
   style.id = "hvu-style";
@@ -68,17 +80,17 @@
     const author = authorHandle(article);
     if (author) {
       for (const link of article.querySelectorAll('a[href*="/status/"]')) {
+        if (link.closest?.('[role="link"]')) continue;
         const href = link.getAttribute("href") || "";
         const match = href.match(/\/(?:https?:\/\/(?:www\.)?(?:x|twitter)\.com\/)?([A-Za-z0-9_]{1,15})\/status\/(\d+)/i);
         if (match && match[1].toLowerCase() === author) return match[2];
+        const webStatus = href.match(/\/i\/web\/status\/(\d+)/i);
+        if (webStatus) return webStatus[1];
       }
     }
     return statusIds(article)[0] || null;
   }
 
-  function hasTweetId(article, id) {
-    return statusIds(article).includes(id);
-  }
 
   function isAiGenerated(article) {
     const id = tweetId(article);
@@ -86,7 +98,7 @@
 
     const labels = new Set(["AIで生成", "AI生成", "Made with AI", "AI-generated"]);
     for (const element of article.querySelectorAll('[aria-label], span')) {
-      if (element.closest('[data-testid="tweetText"]')) continue;
+      if (element.closest('[data-testid="tweetText"]') || element.closest('[role="link"]')) continue;
       const text = (element.getAttribute("aria-label") || element.textContent || "").trim();
       if (labels.has(text)) return true;
     }
@@ -117,16 +129,27 @@
   function languageClassification(language) {
     if (!language) return null;
     const normalized = language.toLowerCase();
-    if (["und", "qme", "zxx"].includes(normalized)) return null;
+    if (["und", "qam", "qct", "qht", "qme", "qst", "zxx"].includes(normalized)) return false;
     return normalized !== "ja";
+  }
+
+  function isAmbiguousShortHan(body) {
+    const han = body.match(/\p{Script=Han}/gu) || [];
+    const nonHanText = body.replace(/[\p{Script=Han}\p{P}\p{S}\p{N}\s]/gu, "");
+    return han.length > 0 && han.length <= 12 && !nonHanText;
   }
 
   function acceptedDetectedLanguage(body, result) {
     const top = result?.languages?.[0];
     if (!top?.language) return null;
     if (/\p{Script=Hiragana}|\p{Script=Katakana}/u.test(body)) return "ja";
-    if (result.isReliable || top.language.toLowerCase() === "ja") {
-      return top.language.toLowerCase();
+
+    const detected = top.language.toLowerCase();
+    if (detected === "zh" && isAmbiguousShortHan(body)) {
+      return null;
+    }
+    if (result.isReliable || detected === "ja") {
+      return detected;
     }
 
     const distinctiveForeignScript = /\p{Script=Thai}|\p{Script=Hangul}|\p{Script=Cyrillic}|\p{Script=Arabic}|\p{Script=Hebrew}|\p{Script=Devanagari}|\p{Script=Greek}|\p{Script=Bengali}|\p{Script=Tamil}|\p{Script=Telugu}/u;
@@ -143,13 +166,17 @@
   function isForeignLanguage(article) {
     if (isTranslatedFromForeignLanguage(article)) return true;
 
-    const text = article.querySelector('[data-testid="tweetText"][lang]');
-    const domClassification = languageClassification(text?.getAttribute("lang"));
-    if (domClassification !== null) return domClassification;
-
     const id = tweetId(article);
-    const apiClassification = languageClassification(id && languages.get(id));
+    const apiLanguage = id && languages.get(id);
+    if (apiLanguage === "zh" && isAmbiguousShortHan(postText(article))) return false;
+    const apiClassification = languageClassification(apiLanguage);
     if (apiClassification !== null) return apiClassification;
+
+    const text = article.querySelector('[data-testid="tweetText"][lang]');
+    const domLanguage = text?.getAttribute("lang")?.toLowerCase();
+    if (domLanguage === "zh" && isAmbiguousShortHan(postText(article))) return false;
+    const domClassification = languageClassification(domLanguage);
+    if (domClassification !== null) return domClassification;
 
     const body = postText(article);
     const localResult = localLanguages.get(article);
@@ -168,10 +195,8 @@
           if (pendingLanguageBodies.get(article) !== body) return;
           pendingLanguageBodies.delete(article);
           const language = acceptedDetectedLanguage(body, result);
-          if (language) {
-            localLanguages.set(article, { body, language });
-            schedule();
-          }
+          localLanguages.set(article, { body, language });
+          if (language) schedule();
         });
       } catch (_) {
         pendingLanguageBodies.delete(article);
@@ -190,11 +215,11 @@
     const linkedTweetId = routeStatusId();
     let count = 0;
     articles.forEach((article) => {
-      const linkedPost = linkedTweetId && hasTweetId(article, linkedTweetId);
+      const linkedPost = linkedTweetId && tweetId(article) === linkedTweetId;
       const filtered = !linkedPost && (
         (isHiding && isPaid(article)) ||
         (hideForeignLanguage && isForeignLanguage(article)) ||
-        (!linkedTweetId && hideAiGenerated && isAiGenerated(article))
+        (hideAiGenerated && isAiGenerated(article))
       );
       if (filtered) {
         article.classList.add(HIDE_CLASS);
@@ -239,13 +264,13 @@
       const value = users[handle];
       if (!/^[a-z0-9_]{1,15}$/.test(normalizedHandle) || !["paid", "other"].includes(value)) continue;
       if (status.get(normalizedHandle) !== value) {
-        status.set(normalizedHandle, value);
+        setBounded(status, normalizedHandle, value);
         changed = true;
       }
     }
     for (const id in aiPosts) {
       if (/^\d{5,}$/.test(id) && aiPosts[id] === true && !aiPostIds.has(id)) {
-        aiPostIds.add(id);
+        addBounded(aiPostIds, id);
         changed = true;
       }
     }
@@ -254,12 +279,14 @@
       if (!/^\d{5,}$/.test(id) || typeof language !== "string" || !/^[a-z0-9-]{1,32}$/i.test(language)) continue;
       const normalizedLanguage = language.toLowerCase();
       if (languages.get(id) !== normalizedLanguage) {
-        languages.set(id, normalizedLanguage);
+        setBounded(languages, id, normalizedLanguage);
         changed = true;
       }
     }
     if (changed) schedule();
   });
+
+  window.postMessage({ source: "tfx-content-ready" }, "*");
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== "tfx-get-blocked-count") return;

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks = null, statusLinkOnly = false, text = '', textContainer = true, collapseTextWhenHidden = false, aiLabel = '', translationSource = '', quotedTranslationSource = '', mediaMarker = false, adWrapper = false } = {}) {
+function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks = null, statusLinkOnly = false, text = '', textContainer = true, domLanguage = '', collapseTextWhenHidden = false, aiLabel = '', quotedAiLabel = '', translationSource = '', quotedTranslationSource = '', mediaMarker = false, adWrapper = false } = {}) {
   const classes = new Set();
   const header = {
     querySelectorAll: () => handle ? [{ getAttribute: () => `/${handle}` }] : [],
@@ -32,6 +32,7 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks =
         if (statusLinks) {
           return statusLinks.map((link) => ({
             getAttribute: () => `/${link.handle}/status/${link.id}`,
+            closest: (closestSelector) => link.quoted && closestSelector === '[role="link"]' ? {} : null,
           }));
         }
         return (tweetIds || (tweetId ? [tweetId] : [])).map((id) => ({
@@ -41,6 +42,11 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks =
       if (selector === '[aria-label], span') {
         const elements = [];
         if (aiLabel) elements.push({ textContent: aiLabel, getAttribute: () => null, closest: () => null });
+        if (quotedAiLabel) elements.push({
+          textContent: quotedAiLabel,
+          getAttribute: () => null,
+          closest: (closestSelector) => closestSelector === '[role="link"]' ? {} : null,
+        });
         if (translationSource) elements.push({
           textContent: `${translationSource}からの翻訳`,
           getAttribute: () => null,
@@ -57,6 +63,9 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks =
     },
     querySelector: (selector) => {
       if (selector === '[data-testid="User-Name"]') return header;
+      if (selector === '[data-testid="tweetText"][lang]' && domLanguage) {
+        return { getAttribute: () => domLanguage };
+      }
       if (selector === 'div[dir="auto"]' && text && textContainer) return { textContent: text };
       if (selector === '[data-testid="placementTracking"]' && mediaMarker) return {};
       if (selector === 'time' && tweetId && !statusLinkOnly) {
@@ -71,10 +80,13 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
   const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
   let messageHandler;
   let runtimeMessageHandler;
+  const postedMessages = [];
+  let detectCalls = 0;
   const context = {
     chrome: {
       i18n: {
         detectLanguage(_text, callback) {
+          detectCalls++;
           const result = detectedResult || (detectedLanguage && { isReliable: true, languages: [{ language: detectedLanguage, percentage: 100 }] });
           if (result) setImmediate(() => callback(result));
         },
@@ -104,7 +116,7 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
       addEventListener(type, handler) {
         if (type === 'message') messageHandler = handler;
       },
-      postMessage() {},
+      postMessage(message) { postedMessages.push(message); },
     },
   };
   context.window.window = context.window;
@@ -116,6 +128,8 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
     runtimeMessageHandler(message, {}, (value) => { response = value; });
     return response;
   };
+  dispatch.postedMessages = postedMessages;
+  dispatch.detectCalls = () => detectCalls;
   return dispatch;
 }
 
@@ -141,6 +155,12 @@ test('reports the hidden count to the popup for this tab', () => {
   );
 });
 
+test('announces readiness so early API classifications can be replayed', () => {
+  const dispatch = runContent({ articles: [] });
+
+  assert.equal(dispatch.postedMessages.some(message => message.source === 'tfx-content-ready'), true);
+});
+
 test('keeps the linked post visible but filters paid replies on a status page', () => {
   const linkedPost = makeArticle({ handle: 'paid_user', tweetId: '2098574607339159828' });
   const paidReply = makeArticle({ handle: 'paid_reply', tweetId: '2098574607339159829' });
@@ -154,6 +174,19 @@ test('keeps the linked post visible but filters paid replies on a status page', 
   assert.equal(paidReply.classList.contains('hvu-hidden'), true);
 });
 
+test('keeps the linked post visible but filters AI-labeled replies', () => {
+  const linkedPost = makeArticle({ handle: 'root_user', tweetId: '2098574607339159828' });
+  const aiReply = makeArticle({ handle: 'reply_user', tweetId: '2098574607339159829', aiLabel: 'AIで生成' });
+  runContent({
+    pathname: '/root_user/status/2098574607339159828',
+    articles: [linkedPost, aiReply],
+    storage: { isHiding: false, hideAiGenerated: true },
+  });
+
+  assert.equal(linkedPost.classList.contains('hvu-hidden'), false);
+  assert.equal(aiReply.classList.contains('hvu-hidden'), true);
+});
+
 test('keeps a linked quote post visible when its quoted post has another ID', () => {
   const linkedQuotePost = makeArticle({
     handle: 'tkzwgrs',
@@ -161,12 +194,48 @@ test('keeps a linked quote post visible when its quoted post has another ID', ()
     tweetIds: ['2098569707494539578', '2098582777331605753'],
   });
   runContent({
-    pathname: '/tkzwgrs/status/2098582777331605753',
+    pathname: '/tkzwgrs/status/2098569707494539578',
     articles: [linkedQuotePost],
     users: { tkzwgrs: 'paid' },
   });
 
   assert.equal(linkedQuotePost.classList.contains('hvu-hidden'), false);
+});
+
+test('filters a paid reply that quotes the linked post', () => {
+  const linkedPost = makeArticle({ handle: 'root_user', tweetId: '2098569707494539578' });
+  const quotingReply = makeArticle({
+    handle: 'paid_reply',
+    statusLinks: [
+      { handle: 'paid_reply', id: '2098569707494539579' },
+      { handle: 'root_user', id: '2098569707494539578' },
+    ],
+  });
+  runContent({
+    pathname: '/root_user/status/2098569707494539578',
+    articles: [linkedPost, quotingReply],
+    users: { root_user: 'other', paid_reply: 'paid' },
+  });
+
+  assert.equal(linkedPost.classList.contains('hvu-hidden'), false);
+  assert.equal(quotingReply.classList.contains('hvu-hidden'), true);
+});
+
+test('keeps a linked paid self-quote visible when the quoted link comes first', () => {
+  const selfQuote = makeArticle({
+    handle: 'root_user',
+    statusLinks: [
+      { handle: 'root_user', id: '2098569707494539500', quoted: true },
+      { handle: 'root_user', id: '2098569707494539578' },
+    ],
+  });
+  runContent({
+    pathname: '/root_user/status/2098569707494539578',
+    articles: [selfQuote],
+    users: { root_user: 'paid' },
+  });
+
+  assert.equal(selfQuote.classList.contains('hvu-hidden'), false);
 });
 
 test('hides foreign-language posts but keeps Japanese posts when enabled', () => {
@@ -188,6 +257,105 @@ test('hides foreign-language posts but keeps Japanese posts when enabled', () =>
   assert.equal(foreignPost.classList.contains('hvu-hidden'), true);
   assert.equal(japanesePost.classList.contains('hvu-hidden'), false);
   assert.equal(unknownPost.classList.contains('hvu-hidden'), false);
+});
+
+test('keeps posts with X pseudo-language codes visible', () => {
+  const codes = ['und', 'qam', 'qct', 'qht', 'qme', 'qst', 'zxx'];
+  const articles = codes.map((code, index) => makeArticle({
+    handle: `user_${index}`,
+    tweetId: String(2098600810179358900n + BigInt(index)),
+  }));
+  const languageMap = Object.fromEntries(articles.map((article, index) => [
+    String(2098600810179358900n + BigInt(index)),
+    codes[index],
+  ]));
+  runContent({
+    articles,
+    storage: { isHiding: false, hideForeignLanguage: true },
+    messageData: { languages: languageMap },
+  });
+
+  for (const article of articles) {
+    assert.equal(article.classList.contains('hvu-hidden'), false);
+  }
+});
+
+test('does not hide short kanji-only text from a DOM zh result', () => {
+  const japanesePost = makeArticle({
+    handle: 'jp_user',
+    tweetId: '2098600810179358997',
+    text: '東京株式市場',
+    domLanguage: 'zh',
+  });
+  runContent({
+    articles: [japanesePost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+  });
+
+  assert.equal(japanesePost.classList.contains('hvu-hidden'), false);
+});
+
+test('does not hide short kanji-only text from an API zh result', () => {
+  const japanesePost = makeArticle({
+    handle: 'jp_user',
+    tweetId: '2098600810179358998',
+    text: '東京株式市場',
+  });
+  runContent({
+    articles: [japanesePost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    messageData: { languages: { '2098600810179358998': 'zh' } },
+  });
+
+  assert.equal(japanesePost.classList.contains('hvu-hidden'), false);
+});
+
+test('does not override an explicit unknown API language with DOM lang', () => {
+  const unknownPost = makeArticle({
+    handle: 'unknown_user',
+    tweetId: '2098600810179358999',
+    text: 'Hello',
+    domLanguage: 'en',
+  });
+  runContent({
+    articles: [unknownPost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    messageData: { languages: { '2098600810179358999': 'und' } },
+  });
+
+  assert.equal(unknownPost.classList.contains('hvu-hidden'), false);
+});
+
+test('bounds content classification caches to recent entries', () => {
+  const firstId = '2098600810179300000';
+  const oldestPost = makeArticle({ handle: 'old_user', tweetId: firstId });
+  const languages = Object.fromEntries(Array.from({ length: 10_001 }, (_, index) => [
+    String(2098600810179300000n + BigInt(index)),
+    'en',
+  ]));
+  runContent({
+    articles: [oldestPost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    messageData: { languages },
+  });
+
+  assert.equal(oldestPost.classList.contains('hvu-hidden'), false);
+});
+
+test('prefers X API language over translated DOM lang', () => {
+  const translatedPost = makeArticle({
+    handle: 'foreign_user',
+    tweetId: '2098600810179358890',
+    text: '日本語へ翻訳された本文',
+    domLanguage: 'ja',
+  });
+  runContent({
+    articles: [translatedPost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    messageData: { languages: { '2098600810179358890': 'en' } },
+  });
+
+  assert.equal(translatedPost.classList.contains('hvu-hidden'), true);
 });
 
 test('keeps the linked foreign post visible but filters foreign replies', () => {
@@ -223,6 +391,21 @@ test('hides an X-translated foreign post even when the visible text is Japanese'
   });
 
   assert.equal(translatedPost.classList.contains('hvu-hidden'), true);
+});
+
+test('does not classify a Japanese outer post from an AI label in its quote card', () => {
+  const japaneseQuotePost = makeArticle({
+    handle: 'jp_user',
+    tweetId: '2098805946738774193',
+    text: 'これは日本語の投稿です。',
+    quotedAiLabel: 'Made with AI',
+  });
+  runContent({
+    articles: [japaneseQuotePost],
+    storage: { isHiding: false, hideAiGenerated: true },
+  });
+
+  assert.equal(japaneseQuotePost.classList.contains('hvu-hidden'), false);
 });
 
 test('does not classify a Japanese outer post from a translated quote label', () => {
@@ -298,6 +481,36 @@ test('does not hide short kanji-only Japanese text on an unreliable local result
   await new Promise(resolve => setImmediate(resolve));
 
   assert.equal(japanesePost.classList.contains('hvu-hidden'), false);
+});
+
+test('does not hide short kanji-only Japanese text on a reliable zh result', async () => {
+  const japanesePost = makeArticle({ handle: 'jp_user', text: '東京株式市場' });
+  runContent({
+    articles: [japanesePost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    detectedResult: { isReliable: true, languages: [{ language: 'zh', percentage: 100 }] },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(japanesePost.classList.contains('hvu-hidden'), false);
+});
+
+test('caches an ambiguous local language result for unchanged text', async () => {
+  const ambiguousPost = makeArticle({ handle: 'short_user', text: '東京株式市場' });
+  const dispatch = runContent({
+    articles: [ambiguousPost],
+    storage: { isHiding: false, hideForeignLanguage: true },
+    detectedResult: { isReliable: true, languages: [{ language: 'zh', percentage: 100 }] },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  dispatch({ users: { first_user: 'other' } });
+  dispatch({ users: { second_user: 'other' } });
+  dispatch({ users: { third_user: 'other' } });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(dispatch.detectCalls(), 1);
+  assert.equal(ambiguousPost.classList.contains('hvu-hidden'), false);
 });
 
 test('keeps a locally detected foreign article hidden across later rechecks', async () => {

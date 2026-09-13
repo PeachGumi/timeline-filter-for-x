@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Hide Verified Users on X (Fixed)",
-  "version": "2.4.2",
-  "description": "Hides paid X Premium posts and optionally AI-labeled or non-Japanese posts on X / Twitter.",
+  "version": "2.4.3",
+  "description": "X / Twitterで、有料の青バッジ投稿を非表示にし、AI生成ラベル付き投稿や日本語以外の投稿もオプションで非表示にします。",
   "icons": {
     "48": "icon.png"
   },

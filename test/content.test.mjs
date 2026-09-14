@@ -138,6 +138,68 @@ test('hides a paid account but keeps an unverified placement-tracked video', () 
   assert.equal(paidPost.classList.contains('hvu-hidden'), true);
 });
 
+test('keeps followed accounts visible across every filter and reapplies after unfollow', () => {
+  const followed = makeArticle({
+    handle: 'followed_user',
+    tweetId: '123456789',
+    text: 'This is an English AI post',
+    domLanguage: 'en',
+    aiLabel: 'Made with AI',
+  });
+  const other = makeArticle({
+    handle: 'other_user',
+    tweetId: '123456790',
+    text: 'This is another English AI post',
+    domLanguage: 'en',
+    aiLabel: 'Made with AI',
+  });
+
+  const dispatch = runContent({
+    articles: [followed, other],
+    users: { followed_user: 'paid', other_user: 'paid' },
+    storage: { isHiding: true, hideAiGenerated: true, hideForeignLanguage: true },
+    messageData: { following: { followed_user: true } },
+  });
+
+  assert.equal(followed.classList.contains('hvu-hidden'), false);
+  assert.equal(other.classList.contains('hvu-hidden'), true);
+
+  dispatch({ following: { followed_user: false } });
+  assert.equal(followed.classList.contains('hvu-hidden'), true);
+});
+
+test('bounds forged following maps from the page', () => {
+  const article = makeArticle({ handle: 'followed_user' });
+  const following = Object.fromEntries(
+    Array.from({ length: 10_000 }, (_, index) => [`x${index}`, true]),
+  );
+  following.followed_user = true;
+
+  runContent({
+    articles: [article],
+    users: { followed_user: 'paid' },
+    messageData: { following },
+  });
+
+  assert.equal(article.classList.contains('hvu-hidden'), true);
+});
+
+test('replaces followed exemptions from a complete relationship snapshot', () => {
+  const article = makeArticle({ handle: 'followed_user' });
+  const dispatch = runContent({
+    articles: [article],
+    users: { followed_user: 'paid' },
+    messageData: { following: { followed_user: true }, followingSnapshot: true },
+  });
+  assert.equal(article.classList.contains('hvu-hidden'), false);
+
+  const following = Object.fromEntries(
+    Array.from({ length: 10_000 }, (_, index) => [`x${index}`, false]),
+  );
+  dispatch({ following, followingSnapshot: true });
+  assert.equal(article.classList.contains('hvu-hidden'), true);
+});
+
 
 test('announces readiness so early API classifications can be replayed', () => {
   const dispatch = runContent({ articles: [] });
@@ -313,15 +375,16 @@ test('does not override an explicit unknown API language with DOM lang', () => {
 test('bounds content classification caches to recent entries', () => {
   const firstId = '2098600810179300000';
   const oldestPost = makeArticle({ handle: 'old_user', tweetId: firstId });
-  const languages = Object.fromEntries(Array.from({ length: 10_001 }, (_, index) => [
+  const languages = Object.fromEntries(Array.from({ length: 10_000 }, (_, index) => [
     String(2098600810179300000n + BigInt(index)),
     'en',
   ]));
-  runContent({
+  const dispatch = runContent({
     articles: [oldestPost],
     storage: { isHiding: false, hideForeignLanguage: true },
     messageData: { languages },
   });
+  dispatch({ languages: { '2098600810179310000': 'en' } });
 
   assert.equal(oldestPost.classList.contains('hvu-hidden'), false);
 });

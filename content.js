@@ -22,6 +22,7 @@
   let hideForeignLanguage = false;
 
   const status = new Map(); // lowercased handle -> "paid" | "other"
+  const following = new Set();
   const aiPostIds = new Set();
   const languages = new Map(); // tweet ID -> X language code
   const localLanguages = new WeakMap(); // article -> { body, language }
@@ -226,13 +227,14 @@
       const handle = isHiding || needsId ? authorHandle(article) : null;
       const id = needsId ? tweetId(article, handle) : null;
       const linkedPost = linkedTweetId && id === linkedTweetId;
+      const exempt = linkedPost || following.has(handle);
       let labels = null;
-      let filtered = !linkedPost && isHiding && isPaidHandle(handle);
-      if (!linkedPost && !filtered && hideForeignLanguage) {
+      let filtered = !exempt && isHiding && isPaidHandle(handle);
+      if (!exempt && !filtered && hideForeignLanguage) {
         labels = articleLabels(article);
         filtered = isForeignLanguage(article, id, labels);
       }
-      if (!linkedPost && !filtered && hideAiGenerated) {
+      if (!exempt && !filtered && hideAiGenerated) {
         filtered = isAiGenerated(article, id, labels);
       }
       if (filtered) {
@@ -270,9 +272,13 @@
     if (!data || data.source !== "hvu") return;
     let changed = false;
     const users = isRecord(data.users) ? data.users : {};
+    const incomingFollowing = isRecord(data.following) ? data.following : {};
     const aiPosts = isRecord(data.aiPosts) ? data.aiPosts : {};
     const incomingLanguages = isRecord(data.languages) ? data.languages : {};
+    let entries = 0;
     for (const handle in users) {
+      if (entries >= MAX_CACHE_ENTRIES) break;
+      entries += 1;
       const normalizedHandle = handle.toLowerCase();
       const value = users[handle];
       if (!/^[a-z0-9_]{1,15}$/.test(normalizedHandle) || !["paid", "other"].includes(value)) continue;
@@ -281,15 +287,52 @@
         changed = true;
       }
     }
+    entries = 0;
+    if (data.followingSnapshot === true) {
+      const nextFollowing = new Set();
+      for (const handle in incomingFollowing) {
+        if (entries >= MAX_CACHE_ENTRIES) break;
+        entries += 1;
+        const normalizedHandle = handle.toLowerCase();
+        if (/^[a-z0-9_]{1,15}$/.test(normalizedHandle) && incomingFollowing[handle] === true) {
+          nextFollowing.add(normalizedHandle);
+        }
+      }
+      if (nextFollowing.size !== following.size || [...nextFollowing].some(handle => !following.has(handle))) {
+        following.clear();
+        for (const handle of nextFollowing) following.add(handle);
+        changed = true;
+      }
+    } else {
+      for (const handle in incomingFollowing) {
+        if (entries >= MAX_CACHE_ENTRIES) break;
+        entries += 1;
+        const normalizedHandle = handle.toLowerCase();
+        const value = incomingFollowing[handle];
+        if (!/^[a-z0-9_]{1,15}$/.test(normalizedHandle) || typeof value !== "boolean") continue;
+        if (value && !following.has(normalizedHandle)) {
+          addBounded(following, normalizedHandle);
+          changed = true;
+        } else if (!value && following.delete(normalizedHandle)) {
+          changed = true;
+        }
+      }
+    }
+    entries = 0;
     for (const id in aiPosts) {
-      if (/^\d{5,}$/.test(id) && aiPosts[id] === true && !aiPostIds.has(id)) {
+      if (entries >= MAX_CACHE_ENTRIES) break;
+      entries += 1;
+      if (/^\d{5,20}$/.test(id) && aiPosts[id] === true && !aiPostIds.has(id)) {
         addBounded(aiPostIds, id);
         changed = true;
       }
     }
+    entries = 0;
     for (const id in incomingLanguages) {
+      if (entries >= MAX_CACHE_ENTRIES) break;
+      entries += 1;
       const language = incomingLanguages[id];
-      if (!/^\d{5,}$/.test(id) || typeof language !== "string" || !/^[a-z0-9-]{1,32}$/i.test(language)) continue;
+      if (!/^\d{5,20}$/.test(id) || typeof language !== "string" || !/^[a-z0-9-]{1,32}$/i.test(language)) continue;
       const normalizedLanguage = language.toLowerCase();
       if (languages.get(id) !== normalizedLanguage) {
         setBounded(languages, id, normalizedLanguage);

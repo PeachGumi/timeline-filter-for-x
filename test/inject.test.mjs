@@ -9,6 +9,183 @@ class FakeXHR {
 FakeXHR.prototype.open = function () {};
 FakeXHR.prototype.send = function () {};
 
+test('forwards followed accounts from current X relationship shapes', async () => {
+  const messages = [];
+  const payload = { entries: [
+    {
+      core: { screen_name: 'legacy_followed' },
+      legacy: { following: true },
+      is_blue_verified: true,
+    },
+    {
+      core: { screenName: 'persp_followed' },
+      relationship_perspectives: { following: false },
+      relationshipPerspectives: { following: true },
+      is_blue_verified: false,
+    },
+    {
+      username: 'status_followed',
+      connection_status: ['followed_by', 'following'],
+      verified: false,
+    },
+  ] };
+  const response = {
+    url: 'https://x.com/i/api/graphql/timeline',
+    clone: () => ({ text: async () => JSON.stringify(payload) }),
+  };
+  const window = {
+    fetch: async () => response,
+    postMessage: message => messages.push(message),
+  };
+  const context = {
+    console,
+    localStorage: { getItem: () => null },
+    Map,
+    Object,
+    URL,
+    window,
+    XMLHttpRequest: FakeXHR,
+  };
+
+  const source = fs.readFileSync(new URL('../inject.js', import.meta.url), 'utf8');
+  vm.runInNewContext(source, context);
+  await window.fetch(response.url);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(messages[0].following)),
+    { legacy_followed: true, persp_followed: true, status_followed: true },
+  );
+});
+
+test('forwards an explicit unfollow after a followed relationship', async () => {
+  const messages = [];
+  let payload = {
+    core: { screen_name: 'followed_user' },
+    legacy: { following: true },
+    is_blue_verified: true,
+  };
+  const response = {
+    url: 'https://x.com/i/api/graphql/timeline',
+    clone: () => ({ text: async () => JSON.stringify(payload) }),
+  };
+  const window = {
+    fetch: async () => response,
+    postMessage: message => messages.push(message),
+  };
+  const context = {
+    console,
+    localStorage: { getItem: () => null },
+    Map,
+    Object,
+    URL,
+    window,
+    XMLHttpRequest: FakeXHR,
+  };
+
+  const source = fs.readFileSync(new URL('../inject.js', import.meta.url), 'utf8');
+  vm.runInNewContext(source, context);
+  await window.fetch(response.url);
+  await new Promise(resolve => setImmediate(resolve));
+  payload = {
+    core: { screen_name: 'followed_user' },
+    legacy: { following: false },
+    is_blue_verified: true,
+  };
+  await window.fetch(response.url);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(messages.at(-1).followingSnapshot, true);
+  assert.equal(messages.at(-1).following.followed_user, undefined);
+});
+
+test('does not restore followed state from an older response that finishes late', async () => {
+  const messages = [];
+  const pending = [];
+  const response = payload => ({
+    url: 'https://x.com/i/api/graphql/timeline',
+    clone: () => ({ text: () => new Promise(resolve => pending.push(() => resolve(JSON.stringify(payload)))) }),
+  });
+  const followed = { core: { screen_name: 'followed_user' }, legacy: { following: true } };
+  const unfollowed = { core: { screen_name: 'followed_user' }, legacy: { following: false } };
+  let call = 0;
+  const window = {
+    fetch: async () => response(call++ === 0 ? followed : unfollowed),
+    postMessage: message => messages.push(message),
+  };
+  const context = { console, localStorage: { getItem: () => null }, Map, Object, URL, window, XMLHttpRequest: FakeXHR };
+  const source = fs.readFileSync(new URL('../inject.js', import.meta.url), 'utf8');
+  vm.runInNewContext(source, context);
+
+  await window.fetch('https://x.com/i/api/graphql/old');
+  await window.fetch('https://x.com/i/api/graphql/new');
+  pending[1]();
+  await new Promise(resolve => setImmediate(resolve));
+  pending[0]();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(messages.some(message => message.following?.followed_user === true), false);
+});
+
+test('revokes an exemption when relationship ordering evidence is evicted', async () => {
+  const messages = [];
+  const releases = new Map();
+  const payloads = {
+    unfollow: { core: { screen_name: 'followed_user' }, legacy: { following: false } },
+    older_a: { core: { screen_name: 'older_a' }, legacy: { following: false } },
+    older_b: { core: { screen_name: 'older_b' }, legacy: { following: false } },
+    follow: { core: { screen_name: 'followed_user' }, legacy: { following: true } },
+  };
+  const window = {
+    fetch: async url => ({
+      url: 'https://x.com/i/api/graphql/timeline',
+      clone: () => ({ text: () => {
+        const key = url.split('/').at(-1);
+        if (key === 'follow') return Promise.resolve(JSON.stringify(payloads[key]));
+        return new Promise(resolve => { releases.set(key, () => resolve(JSON.stringify(payloads[key]))); });
+      } }),
+    }),
+    postMessage: message => messages.push(message),
+  };
+  const context = { console, localStorage: { getItem: () => null }, Map, Object, URL, window, XMLHttpRequest: FakeXHR };
+  const source = fs.readFileSync(new URL('../inject.js', import.meta.url), 'utf8')
+    .replace('const MAX_CACHE_ENTRIES = 10_000;', 'const MAX_CACHE_ENTRIES = 2;');
+  vm.runInNewContext(source, context);
+
+  await window.fetch('https://x.com/i/api/graphql/unfollow');
+  await window.fetch('https://x.com/i/api/graphql/older_a');
+  await window.fetch('https://x.com/i/api/graphql/older_b');
+  await window.fetch('https://x.com/i/api/graphql/follow');
+  await new Promise(resolve => setImmediate(resolve));
+  releases.get('older_a')();
+  await new Promise(resolve => setImmediate(resolve));
+  releases.get('older_b')();
+  await new Promise(resolve => setImmediate(resolve));
+  releases.get('unfollow')();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(messages.at(-1).followingSnapshot, true);
+  assert.equal(messages.at(-1).following.followed_user, undefined);
+});
+
+test('rejects oversized tweet IDs from classification caches', async () => {
+  const messages = [];
+  const oversized = '9'.repeat(100_000);
+  const payload = { rest_id: oversized, made_with_ai: true, lang: 'en' };
+  const response = {
+    url: 'https://x.com/i/api/graphql/timeline',
+    clone: () => ({ text: async () => JSON.stringify(payload) }),
+  };
+  const window = { fetch: async () => response, postMessage: message => messages.push(message) };
+  const context = { console, localStorage: { getItem: () => null }, Map, Object, URL, window, XMLHttpRequest: FakeXHR };
+  const source = fs.readFileSync(new URL('../inject.js', import.meta.url), 'utf8');
+  vm.runInNewContext(source, context);
+  await window.fetch(response.url);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(messages.length, 0);
+});
+
 test('a partial duplicate cannot overwrite an explicit paid classification', async () => {
   const messages = [];
   const payload = {
@@ -392,6 +569,87 @@ test('forwards language data from XHR JSON responses', () => {
   assert.equal(messages[0]?.languages['2098600810179358878'], 'pt');
 });
 
+test('XHR ordering eviction cannot retain a stale followed exemption', () => {
+  const messages = [];
+  class OrderedXHR {
+    addEventListener(type, handler) {
+      if (type === 'load') this.loadHandler = handler;
+    }
+  }
+  OrderedXHR.prototype.open = function () {};
+  OrderedXHR.prototype.send = function () {};
+  const window = {
+    location: { href: 'https://x.com/home' },
+    fetch: async () => ({ url: '', clone: () => ({ text: async () => '' }) }),
+    postMessage: message => messages.push(message),
+  };
+  const context = { console, localStorage: { getItem: () => null }, Map, Object, URL, window, XMLHttpRequest: OrderedXHR };
+  const source = fs.readFileSync(new URL('../inject.js', import.meta.url), 'utf8')
+    .replace('const MAX_CACHE_ENTRIES = 10_000;', 'const MAX_CACHE_ENTRIES = 2;');
+  vm.runInNewContext(source, context);
+
+  const make = (handle, following) => {
+    const xhr = new OrderedXHR();
+    xhr.responseType = 'json';
+    xhr.response = { core: { screen_name: handle }, legacy: { following } };
+    xhr.open('GET', 'https://x.com/i/api/graphql/timeline');
+    xhr.send();
+    return xhr;
+  };
+  const unfollow = make('followed_user', false);
+  const olderA = make('older_a', false);
+  const olderB = make('older_b', false);
+  const follow = make('followed_user', true);
+  follow.loadHandler();
+  olderA.loadHandler();
+  olderB.loadHandler();
+  unfollow.loadHandler();
+
+  assert.equal(messages.at(-1).followingSnapshot, true);
+  assert.equal(messages.at(-1).following.followed_user, undefined);
+});
+
+test('reused XHR instances do not retain obsolete load listeners', () => {
+  const messages = [];
+  class ReusedXHR {
+    constructor() { this.listeners = []; }
+    addEventListener(type, handler, options) {
+      if (type === 'load') this.listeners.push({ handler, once: options?.once === true });
+    }
+    removeEventListener(type, handler) {
+      if (type === 'load') this.listeners = this.listeners.filter(entry => entry.handler !== handler);
+    }
+    fireLoad() {
+      for (const entry of [...this.listeners]) {
+        entry.handler();
+        if (entry.once) this.removeEventListener('load', entry.handler);
+      }
+    }
+  }
+  ReusedXHR.prototype.open = function () {};
+  ReusedXHR.prototype.send = function () {};
+  const window = {
+    location: { href: 'https://x.com/home' },
+    fetch: async () => ({ url: '', clone: () => ({ text: async () => '' }) }),
+    postMessage: message => messages.push(message),
+  };
+  const context = { console, localStorage: { getItem: () => null }, Map, Object, URL, window, XMLHttpRequest: ReusedXHR };
+  const source = fs.readFileSync(new URL('../inject.js', import.meta.url), 'utf8');
+  vm.runInNewContext(source, context);
+  const xhr = new ReusedXHR();
+  xhr.responseType = 'json';
+  xhr.open('GET', 'https://x.com/i/api/graphql/timeline');
+  xhr.response = { core: { screen_name: 'followed_user' }, legacy: { following: true } };
+  xhr.send();
+  xhr.fireLoad();
+  assert.equal(xhr.listeners.length, 0);
+
+  xhr.response = { core: { screen_name: 'followed_user' }, legacy: { following: false } };
+  xhr.send();
+  xhr.fireLoad();
+  assert.equal(messages.at(-1).following.followed_user, undefined);
+});
+
 test('does not inspect unrecognized X subdomains', async () => {
   let cloned = false;
   const response = {
@@ -603,7 +861,7 @@ test('replays classifications when the content script becomes ready', async () =
   const messages = [];
   let pageMessageHandler;
   const payload = {
-    user: { core: { screen_name: 'paid_user' }, is_blue_verified: true },
+    user: { core: { screen_name: 'paid_user' }, legacy: { following: true }, is_blue_verified: true },
     tweet: { rest_id: '2098607063819767842', made_with_ai: true, lang: 'en' },
   };
   const response = {
@@ -637,6 +895,7 @@ test('replays classifications when the content script becomes ready', async () =
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].users.paid_user, 'paid');
+  assert.equal(messages[0].following.paid_user, true);
   assert.equal(messages[0].aiPosts['2098607063819767842'], true);
   assert.equal(messages[0].languages['2098607063819767842'], 'en');
 });

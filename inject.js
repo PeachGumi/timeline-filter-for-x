@@ -15,18 +15,44 @@
   // Returns "paid" only for individuals who pay for X Premium (blue check),
   // excluding gold (Business) and grey (Government) and legacy-only badges.
   // X has shuffled where these live over time, so we probe several locations.
-  function classify(user) {
+  function userHandle(user) {
     const legacy = user.legacy || {};
     const core = user.core || {};
-    const verification = user.verification || {};
-
-    const handle = (
+    const candidate =
       core.screen_name ||
+      core.screenName ||
       legacy.screen_name ||
       user.screen_name ||
       user.username ||
-      ""
-    ).toLowerCase();
+      "";
+    return typeof candidate === "string" && /^[A-Za-z0-9_]{1,15}$/.test(candidate)
+      ? candidate.toLowerCase()
+      : null;
+  }
+
+  function relationshipState(user) {
+    const legacy = user.legacy || {};
+    const perspectives = [user.relationship_perspectives, user.relationshipPerspectives]
+      .filter(value => value && typeof value === "object");
+    const booleanSignals = [user.following, legacy.following, ...perspectives.map(value => value.following)]
+      .filter(value => typeof value === "boolean");
+    let hasExplicitFalse = booleanSignals.includes(false);
+    if (booleanSignals.includes(true)) return true;
+
+    const statusSignals = [user.connection_status, legacy.connection_status, ...perspectives.map(value => value.connection_status)]
+      .filter(value => Array.isArray(value) || typeof value === "string");
+    for (const value of statusSignals) {
+      const statuses = Array.isArray(value) ? value.slice(0, 100) : [value];
+      if (statuses.some(status => typeof status === "string" && status.length <= 64 && status.toLowerCase() === "following")) return true;
+      hasExplicitFalse = true;
+    }
+    return hasExplicitFalse ? false : null;
+  }
+
+  function classify(user) {
+    const legacy = user.legacy || {};
+    const verification = user.verification || {};
+    const handle = userHandle(user);
     if (!handle) return null;
 
     // Some timeline payloads repeat the same user as a partial object. A
@@ -62,6 +88,9 @@
   }
 
   const seen = new Map(); // handle -> { status, confidence }
+  const seenFollowing = new Set();
+  const followingOrder = new Map();
+  let followingOrderFloor = 0;
   const seenAiPosts = new Set();
   const seenLanguages = new Map();
 
@@ -77,7 +106,7 @@
   }
 
   // Recursively walk a parsed response, collecting User, AI-label and language data.
-  function harvest(node, userOut, aiOut, languageOut, depth, budget) {
+  function harvest(node, userOut, followingOut, aiOut, languageOut, depth, budget) {
     if (!node || typeof node !== "object" || depth > 40 || budget.nodes >= MAX_HARVEST_NODES) return;
     budget.nodes++;
     if (Array.isArray(node)) {
@@ -85,7 +114,7 @@
         if (budget.nodes >= MAX_HARVEST_NODES) break;
         budget.nodes++;
         if (item && typeof item === "object") {
-          harvest(item, userOut, aiOut, languageOut, depth + 1, budget);
+          harvest(item, userOut, followingOut, aiOut, languageOut, depth + 1, budget);
         }
       }
       return;
@@ -94,12 +123,17 @@
     const language = node.lang || (node.legacy && node.legacy.lang);
     if (madeWithAi || (typeof language === "string" && language)) {
       const tweetId = String(node.rest_id || node.id_str || node.tweet_id || node.id || "");
-      if (/^\d{5,}$/.test(tweetId)) {
+      if (/^\d{5,20}$/.test(tweetId)) {
         if (madeWithAi) aiOut.push(tweetId);
         if (typeof language === "string" && language) {
           languageOut.push({ id: tweetId, language: language.toLowerCase() });
         }
       }
+    }
+    const followingState = relationshipState(node);
+    if (followingState !== null) {
+      const handle = userHandle(node);
+      if (handle) followingOut.push({ handle, state: followingState });
     }
     const hasUserShape =
       "is_blue_verified" in node ||
@@ -117,12 +151,12 @@
       if (budget.nodes >= MAX_HARVEST_NODES) break;
       budget.nodes++;
       const val = node[key];
-      if (val && typeof val === "object") harvest(val, userOut, aiOut, languageOut, depth + 1, budget);
+      if (val && typeof val === "object") harvest(val, userOut, followingOut, aiOut, languageOut, depth + 1, budget);
     }
   }
 
   // Accepts either a JSON string or an already-parsed object.
-  function process(input) {
+  function process(input, sequence = 0) {
     let data = input;
     if (typeof input === "string") {
       if (!input || input.length > 5_000_000) return;
@@ -134,13 +168,16 @@
     }
     if (!data || typeof data !== "object") return;
     const found = [];
+    const foundFollowing = [];
     const foundAiPosts = [];
     const foundLanguages = [];
-    harvest(data, found, foundAiPosts, foundLanguages, 0, { nodes: 0 });
+    harvest(data, found, foundFollowing, foundAiPosts, foundLanguages, 0, { nodes: 0 });
     const updates = new Map();
+    let followingChanged = false;
     const aiPosts = new Map();
     const languageUpdates = new Map();
     const resolvedUsers = new Map();
+    const resolvedFollowing = new Map();
     for (const result of found) {
       const current = resolvedUsers.get(result.handle);
       if (!current || result.confidence > current.confidence) {
@@ -152,6 +189,34 @@
       if (previous && confidence < previous.confidence) continue;
       setBounded(seen, handle, { status, confidence });
       if (previous?.status !== status) setBounded(updates, handle, status);
+    }
+    for (const { handle, state } of foundFollowing) {
+      if (resolvedFollowing.get(handle) !== true || state === true) {
+        resolvedFollowing.set(handle, state);
+      }
+    }
+    for (const [handle, state] of resolvedFollowing) {
+      const previousSequence = followingOrder.get(handle);
+      if (previousSequence === undefined && sequence <= followingOrderFloor) continue;
+      if (previousSequence !== undefined && sequence < previousSequence) continue;
+      if (previousSequence !== undefined) followingOrder.delete(handle);
+      while (followingOrder.size >= MAX_CACHE_ENTRIES) {
+        const oldest = followingOrder.keys().next().value;
+        followingOrderFloor = Math.max(followingOrderFloor, followingOrder.get(oldest));
+        followingOrder.delete(oldest);
+        if (seenFollowing.delete(oldest)) followingChanged = true;
+      }
+      followingOrder.set(handle, sequence);
+
+      if (state && !seenFollowing.has(handle)) {
+        while (seenFollowing.size >= MAX_CACHE_ENTRIES) {
+          seenFollowing.delete(seenFollowing.values().next().value);
+        }
+        seenFollowing.add(handle);
+        followingChanged = true;
+      } else if (!state && seenFollowing.delete(handle)) {
+        followingChanged = true;
+      }
     }
     for (const id of foundAiPosts) {
       if (!seenAiPosts.has(id)) {
@@ -166,7 +231,7 @@
       }
     }
     if (found.length) log("scanned response:", found.length, "users,", updates.size, "new");
-    if (updates.size || aiPosts.size || languageUpdates.size) {
+    if (updates.size || followingChanged || aiPosts.size || languageUpdates.size) {
       if (DEBUG()) {
         const paid = [...updates].filter(([, status]) => status === "paid").map(([handle]) => handle);
         if (paid.length) log("paid handles:", paid.join(", "));
@@ -174,6 +239,10 @@
       window.postMessage({
         source: "hvu",
         users: Object.fromEntries(updates),
+        following: followingChanged
+          ? Object.fromEntries([...seenFollowing].map(handle => [handle, true]))
+          : {},
+        followingSnapshot: followingChanged,
         aiPosts: Object.fromEntries(aiPosts),
         languages: Object.fromEntries(languageUpdates),
       }, "*");
@@ -182,9 +251,10 @@
 
   function replaySnapshot() {
     const users = Object.fromEntries([...seen].map(([handle, value]) => [handle, value.status]));
+    const following = Object.fromEntries([...seenFollowing].map(handle => [handle, true]));
     const aiPosts = Object.fromEntries([...seenAiPosts].map((id) => [id, true]));
     const languages = Object.fromEntries(seenLanguages);
-    window.postMessage({ source: "hvu", users, aiPosts, languages }, "*");
+    window.postMessage({ source: "hvu", users, following, followingSnapshot: true, aiPosts, languages }, "*");
   }
 
   window.addEventListener?.("message", (event) => {
@@ -209,14 +279,16 @@
 
   // --- Patch fetch ---
   const origFetch = window.fetch;
+  let requestSequence = 0;
   window.fetch = function (...args) {
+    const sequence = ++requestSequence;
     return origFetch.apply(this, args).then((res) => {
       const url = res.url || "";
       if (isXApiUrl(url)) {
         res
           .clone()
           .text()
-          .then(process)
+          .then(input => process(input, sequence))
           .catch(() => {});
       }
       return res;
@@ -231,18 +303,31 @@
     return origOpen.apply(this, arguments);
   };
   XMLHttpRequest.prototype.send = function () {
-    this.addEventListener("load", () => {
+    const sequence = ++requestSequence;
+    if (this.__hvuLoadHandler) {
+      this.removeEventListener?.("load", this.__hvuLoadHandler);
+    }
+    const onLoad = () => {
+      if (this.__hvuLoadHandler === onLoad) this.__hvuLoadHandler = null;
       try {
         const url = this.__hvuUrl || "";
         if (!isXApiUrl(url)) return;
         const rt = this.responseType;
         if (rt === "json") {
-          process(this.response); // already a parsed object
+          process(this.response, sequence); // already a parsed object
         } else if (rt === "" || rt === "text") {
-          process(this.responseText);
+          process(this.responseText, sequence);
         }
       } catch (_) {}
-    });
-    return origSend.apply(this, arguments);
+    };
+    this.__hvuLoadHandler = onLoad;
+    this.addEventListener("load", onLoad, { once: true });
+    try {
+      return origSend.apply(this, arguments);
+    } catch (error) {
+      this.removeEventListener?.("load", onLoad);
+      if (this.__hvuLoadHandler === onLoad) this.__hvuLoadHandler = null;
+      throw error;
+    }
   };
 })();

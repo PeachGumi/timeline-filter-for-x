@@ -1,8 +1,8 @@
 // Runs in the page's MAIN world so it can observe X's own fetch/XHR traffic.
 // X's API responses carry the verification details that the rendered HTML hides:
 // whether a check is paid (X Premium individual) vs. a business/government/legacy
-// badge. We scrape those, classify each handle, and forward the result to the
-// isolated content script via window.postMessage.
+// badge, AI labels, and post language. We forward compact classification maps
+// and replay a bounded snapshot when the isolated content script announces readiness.
 (() => {
   const MAX_HARVEST_NODES = 100_000;
   const MAX_CACHE_ENTRIES = 10_000;
@@ -53,8 +53,7 @@
       user.is_blue_verified === true ||
       user.isBlueVerified === true ||
       verification.is_blue_verified === true ||
-      verification.verified === true ||
-      (user.verified === true && types.includes("blue"));
+      verification.verified === true;
     const protectedType = types.includes("business") || types.includes("government");
     const specificType = types.some((value) => value !== "none");
     const status = isBlue && !protectedType ? "paid" : "other";
@@ -91,14 +90,16 @@
       }
       return;
     }
-    if (node.made_with_ai === true || node.madeWithAi === true) {
-      const id = String(node.rest_id || node.id_str || node.tweet_id || node.id || "");
-      if (/^\d{5,}$/.test(id)) aiOut.push(id);
-    }
-    const tweetId = String(node.rest_id || node.id_str || node.tweet_id || node.id || "");
+    const madeWithAi = node.made_with_ai === true || node.madeWithAi === true;
     const language = node.lang || (node.legacy && node.legacy.lang);
-    if (/^\d{5,}$/.test(tweetId) && typeof language === "string" && language) {
-      languageOut.push({ id: tweetId, language: language.toLowerCase() });
+    if (madeWithAi || (typeof language === "string" && language)) {
+      const tweetId = String(node.rest_id || node.id_str || node.tweet_id || node.id || "");
+      if (/^\d{5,}$/.test(tweetId)) {
+        if (madeWithAi) aiOut.push(tweetId);
+        if (typeof language === "string" && language) {
+          languageOut.push({ id: tweetId, language: language.toLowerCase() });
+        }
+      }
     }
     const hasUserShape =
       "is_blue_verified" in node ||
@@ -146,11 +147,10 @@
         resolvedUsers.set(result.handle, result);
       }
     }
-    for (const { handle, status } of resolvedUsers.values()) {
-      const result = resolvedUsers.get(handle);
+    for (const { handle, status, confidence } of resolvedUsers.values()) {
       const previous = seen.get(handle);
-      if (previous && result.confidence < previous.confidence) continue;
-      setBounded(seen, handle, { status, confidence: result.confidence });
+      if (previous && confidence < previous.confidence) continue;
+      setBounded(seen, handle, { status, confidence });
       if (previous?.status !== status) setBounded(updates, handle, status);
     }
     for (const id of foundAiPosts) {
@@ -167,8 +167,10 @@
     }
     if (found.length) log("scanned response:", found.length, "users,", updates.size, "new");
     if (updates.size || aiPosts.size || languageUpdates.size) {
-      const paid = [...updates].filter(([, status]) => status === "paid").map(([handle]) => handle);
-      if (paid.length) log("paid handles:", paid.join(", "));
+      if (DEBUG()) {
+        const paid = [...updates].filter(([, status]) => status === "paid").map(([handle]) => handle);
+        if (paid.length) log("paid handles:", paid.join(", "));
+      }
       window.postMessage({
         source: "hvu",
         users: Object.fromEntries(updates),

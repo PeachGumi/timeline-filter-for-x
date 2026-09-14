@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Timeline Filter for X",
   "short_name": "Timeline Filter",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "X / Twitterで、有料青バッジ、AI生成ラベル、日本語以外の投稿を条件ごとに非表示にします。",
   "homepage_url": "https://github.com/PeachGumi/timeline-filter-for-x",
   "icons": {

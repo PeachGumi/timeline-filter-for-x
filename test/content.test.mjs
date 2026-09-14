@@ -377,6 +377,40 @@ test('keeps the linked foreign post visible but filters foreign replies', () => 
   assert.equal(foreignReply.classList.contains('hvu-hidden'), true);
 });
 
+test('combines language and AI filters while preserving an /i/web/status root post', () => {
+  const linkedPost = makeArticle({
+    handle: 'root_user',
+    tweetId: '2098600810179358878',
+    aiLabel: 'Made with AI',
+  });
+  const aiReply = makeArticle({
+    handle: 'ai_reply',
+    tweetId: '2098600810179358879',
+    text: 'これは日本語の返信です。',
+    aiLabel: 'Made with AI',
+  });
+  const foreignReply = makeArticle({
+    handle: 'foreign_reply',
+    tweetId: '2098600810179358880',
+  });
+  runContent({
+    pathname: '/i/web/status/2098600810179358878',
+    articles: [linkedPost, aiReply, foreignReply],
+    storage: { isHiding: false, hideAiGenerated: true, hideForeignLanguage: true },
+    messageData: {
+      languages: {
+        '2098600810179358878': 'en',
+        '2098600810179358879': 'ja',
+        '2098600810179358880': 'en',
+      },
+    },
+  });
+
+  assert.equal(linkedPost.classList.contains('hvu-hidden'), false);
+  assert.equal(aiReply.classList.contains('hvu-hidden'), true);
+  assert.equal(foreignReply.classList.contains('hvu-hidden'), true);
+});
+
 test('hides an X-translated foreign post even when the visible text is Japanese', () => {
   const translatedPost = makeArticle({
     handle: 'OutofOces',

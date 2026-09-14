@@ -3,12 +3,14 @@
 // while leaving gold (Business), grey (Government) and legacy badges alone.
 //
 // The paid/not-paid signal isn't in the rendered HTML, so inject.js (MAIN world)
-// reads X's API traffic and posts us a handle -> status map. We match each post's
-// author handle against that map.
+// reads X's API traffic and posts compact user, AI-label, and language maps.
+// A readiness handshake replays classifications captured before this script loads.
 (() => {
   const HIDE_CLASS = "hvu-hidden";
   const TWEET_SELECTOR = "article";
   const MAX_CACHE_ENTRIES = 10_000;
+  const AI_LABELS = new Set(["AIで生成", "AI生成", "Made with AI", "AI-generated"]);
+  const UNKNOWN_LANGUAGE_CODES = new Set(["und", "qam", "qct", "qht", "qme", "qst", "zxx"]);
   const DEBUG = () => {
     try { return localStorage.getItem("hvu-debug") === "1"; } catch (_) { return false; }
   };
@@ -55,8 +57,7 @@
     return m ? m[1].toLowerCase() : null;
   }
 
-  function isPaid(article) {
-    const handle = authorHandle(article);
+  function isPaidHandle(handle) {
     return handle ? status.get(handle) === "paid" : false;
   }
 
@@ -76,8 +77,7 @@
     return ids;
   }
 
-  function tweetId(article) {
-    const author = authorHandle(article);
+  function tweetId(article, author = authorHandle(article)) {
     if (author) {
       for (const link of article.querySelectorAll('a[href*="/status/"]')) {
         if (link.closest?.('[role="link"]')) continue;
@@ -92,15 +92,22 @@
   }
 
 
-  function isAiGenerated(article) {
-    const id = tweetId(article);
+  function articleLabels(article) {
+    const labels = [];
+    for (const element of article.querySelectorAll('[aria-label], span')) {
+      if (element.closest('[role="link"]')) continue;
+      const text = (element.getAttribute("aria-label") || element.textContent || "").trim();
+      if (text) labels.push({ element, text });
+    }
+    return labels;
+  }
+
+  function isAiGenerated(article, id, labels = null) {
     if (id && aiPostIds.has(id)) return true;
 
-    const labels = new Set(["AIで生成", "AI生成", "Made with AI", "AI-generated"]);
-    for (const element of article.querySelectorAll('[aria-label], span')) {
-      if (element.closest('[data-testid="tweetText"]') || element.closest('[role="link"]')) continue;
-      const text = (element.getAttribute("aria-label") || element.textContent || "").trim();
-      if (labels.has(text)) return true;
+    for (const entry of labels || articleLabels(article)) {
+      if (entry.element.closest('[data-testid="tweetText"]')) continue;
+      if (AI_LABELS.has(entry.text)) return true;
     }
     return false;
   }
@@ -114,10 +121,8 @@
     ).trim();
   }
 
-  function isTranslatedFromForeignLanguage(article) {
-    for (const element of article.querySelectorAll('[aria-label], span')) {
-      if (element.closest('[role="link"]')) continue;
-      const label = (element.getAttribute("aria-label") || element.textContent || "").trim();
+  function isTranslatedFromForeignLanguage(labels) {
+    for (const { text: label } of labels) {
       const japaneseLabel = label.match(/^([^\s]{1,24}語)からの翻訳$/);
       if (japaneseLabel) return japaneseLabel[1] !== "日本語";
       const englishLabel = label.match(/^Translated from (.{1,32})$/i);
@@ -126,10 +131,11 @@
     return false;
   }
 
-  function languageClassification(language) {
+  function languageClassification(language, body = "") {
     if (!language) return null;
     const normalized = language.toLowerCase();
-    if (["und", "qam", "qct", "qht", "qme", "qst", "zxx"].includes(normalized)) return false;
+    if (UNKNOWN_LANGUAGE_CODES.has(normalized)) return false;
+    if (normalized === "zh" && isAmbiguousShortHan(body)) return false;
     return normalized !== "ja";
   }
 
@@ -163,22 +169,22 @@
     return null;
   }
 
-  function isForeignLanguage(article) {
-    if (isTranslatedFromForeignLanguage(article)) return true;
+  function isForeignLanguage(article, id, labels) {
+    if (isTranslatedFromForeignLanguage(labels)) return true;
 
-    const id = tweetId(article);
+    let body = null;
     const apiLanguage = id && languages.get(id);
-    if (apiLanguage === "zh" && isAmbiguousShortHan(postText(article))) return false;
-    const apiClassification = languageClassification(apiLanguage);
+    if (apiLanguage === "zh") body = postText(article);
+    const apiClassification = languageClassification(apiLanguage, body || "");
     if (apiClassification !== null) return apiClassification;
 
     const text = article.querySelector('[data-testid="tweetText"][lang]');
     const domLanguage = text?.getAttribute("lang")?.toLowerCase();
-    if (domLanguage === "zh" && isAmbiguousShortHan(postText(article))) return false;
-    const domClassification = languageClassification(domLanguage);
+    if (domLanguage === "zh" && body === null) body = postText(article);
+    const domClassification = languageClassification(domLanguage, body || "");
     if (domClassification !== null) return domClassification;
 
-    const body = postText(article);
+    if (body === null) body = postText(article);
     const localResult = localLanguages.get(article);
     if (localResult?.body === body) {
       return languageClassification(localResult.language) === true;
@@ -213,14 +219,22 @@
   function apply() {
     const articles = document.querySelectorAll(TWEET_SELECTOR);
     const linkedTweetId = routeStatusId();
+    const filtersEnabled = isHiding || hideForeignLanguage || hideAiGenerated;
+    const needsId = filtersEnabled && (!!linkedTweetId || hideForeignLanguage || hideAiGenerated);
     let count = 0;
     articles.forEach((article) => {
-      const linkedPost = linkedTweetId && tweetId(article) === linkedTweetId;
-      const filtered = !linkedPost && (
-        (isHiding && isPaid(article)) ||
-        (hideForeignLanguage && isForeignLanguage(article)) ||
-        (hideAiGenerated && isAiGenerated(article))
-      );
+      const handle = isHiding || needsId ? authorHandle(article) : null;
+      const id = needsId ? tweetId(article, handle) : null;
+      const linkedPost = linkedTweetId && id === linkedTweetId;
+      let labels = null;
+      let filtered = !linkedPost && isHiding && isPaidHandle(handle);
+      if (!linkedPost && !filtered && hideForeignLanguage) {
+        labels = articleLabels(article);
+        filtered = isForeignLanguage(article, id, labels);
+      }
+      if (!linkedPost && !filtered && hideAiGenerated) {
+        filtered = isAiGenerated(article, id, labels);
+      }
       if (filtered) {
         article.classList.add(HIDE_CLASS);
         count++;
@@ -250,7 +264,7 @@
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
 
-  // Verification and AI-label data arriving from the MAIN-world interceptor.
+  // User, AI-label, and language data arriving from the MAIN-world interceptor.
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;

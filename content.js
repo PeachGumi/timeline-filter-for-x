@@ -11,9 +11,7 @@
   const MAX_CACHE_ENTRIES = 10_000;
   const AI_LABELS = new Set(["AIで生成", "AI生成", "Made with AI", "AI-generated"]);
   const UNKNOWN_LANGUAGE_CODES = new Set(["und", "qam", "qct", "qht", "qme", "qst", "zxx"]);
-  const DOCUMENT_TOKEN = typeof globalThis.crypto?.randomUUID === "function"
-    ? globalThis.crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
   const DEBUG = () => {
     try { return localStorage.getItem("hvu-debug") === "1"; } catch (_) { return false; }
   };
@@ -22,8 +20,7 @@
   let isHiding = false;
   let hideAiGenerated = false;
   let hideForeignLanguage = false;
-  let blockedCount = 0;
-  let hasPublishedCount = false;
+
   const status = new Map(); // lowercased handle -> "paid" | "other"
   const aiPostIds = new Set();
   const languages = new Map(); // tweet ID -> X language code
@@ -225,7 +222,6 @@
     const linkedTweetId = routeStatusId();
     const filtersEnabled = isHiding || hideForeignLanguage || hideAiGenerated;
     const needsId = filtersEnabled && (!!linkedTweetId || hideForeignLanguage || hideAiGenerated);
-    let count = 0;
     articles.forEach((article) => {
       const handle = isHiding || needsId ? authorHandle(article) : null;
       const id = needsId ? tweetId(article, handle) : null;
@@ -241,24 +237,14 @@
       }
       if (filtered) {
         article.classList.add(HIDE_CLASS);
-        count++;
       } else {
         article.classList.remove(HIDE_CLASS);
       }
     });
-    if (!hasPublishedCount || count !== blockedCount) {
-      blockedCount = count;
-      hasPublishedCount = true;
-      try {
-        chrome.runtime.sendMessage(
-          { type: "tfx-blocked-count-updated", blockedCount, documentToken: DOCUMENT_TOKEN },
-          () => void chrome.runtime.lastError,
-        );
-      } catch (_) {}
-    }
     if (DEBUG()) {
       const handles = [...articles].map(authorHandle).filter(Boolean);
-      log(`apply: hiding=${isHiding}, ${articles.length} posts, ${count} hidden, ${status.size} classified handles`);
+      const hidden = [...articles].filter(article => article.classList.contains(HIDE_CLASS)).length;
+      log(`apply: hiding=${isHiding}, ${articles.length} posts, ${hidden} hidden, ${status.size} classified handles`);
       log("visible post handles:", handles.join(", "));
     }
   }
@@ -315,10 +301,6 @@
 
   window.postMessage({ source: "tfx-content-ready" }, "*");
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type !== "tfx-get-blocked-count") return;
-    sendResponse({ blockedCount, documentToken: DOCUMENT_TOKEN });
-  });
 
   const observer = new MutationObserver(schedule);
   observer.observe(document.documentElement, { childList: true, subtree: true });

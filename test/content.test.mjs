@@ -10,7 +10,6 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks =
     textContent: '',
   };
   return {
-    reuseAs(nextHandle) { handle = nextHandle; },
     get innerText() {
       return collapseTextWhenHidden && classes.has('hvu-hidden') ? '' : text;
     },
@@ -77,14 +76,10 @@ function makeArticle({ handle = '', tweetId = '', tweetIds = null, statusLinks =
   };
 }
 
-function runContent({ pathname = '/home', articles, users = {}, storage = { isHiding: true }, messageData = {}, detectedLanguage = null, detectedResult = null, deferInitialization = false }) {
+function runContent({ pathname = '/home', articles, users = {}, storage = { isHiding: true }, messageData = {}, detectedLanguage = null, detectedResult = null }) {
   const source = fs.readFileSync(new URL('../content.js', import.meta.url), 'utf8');
   let messageHandler;
-  let runtimeMessageHandler;
-  let storageChangedHandler;
-  let storageGetCallback;
   const postedMessages = [];
-  const runtimeMessages = [];
   let detectCalls = 0;
   const context = {
     chrome: {
@@ -97,22 +92,12 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
       },
       storage: {
         local: { set() {} },
-        onChanged: { addListener(handler) { storageChangedHandler = handler; } },
-        sync: { get(_key, callback) {
-          if (deferInitialization) storageGetCallback = callback;
-          else callback(storage);
-        } },
+        onChanged: { addListener() {} },
+        sync: { get(_key, callback) { callback(storage); } },
       },
-      runtime: {
-        sendMessage(message, callback) {
-          runtimeMessages.push(message);
-          if (callback) callback();
-        },
-        onMessage: { addListener(handler) { runtimeMessageHandler = handler; } },
-      },
+
     },
     console,
-    crypto: { randomUUID: () => 'test-document' },
     document: {
       createElement: () => ({ id: '', textContent: '' }),
       documentElement: { appendChild() {} },
@@ -133,26 +118,10 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
   };
   context.window.window = context.window;
   vm.runInNewContext(source, context);
-  if (!deferInitialization) {
-    messageHandler({ source: context.window, data: { source: 'hvu', users, ...messageData } });
-  }
+  messageHandler({ source: context.window, data: { source: 'hvu', users, ...messageData } });
   const dispatch = (data) => messageHandler({ source: context.window, data: { source: 'hvu', ...data } });
-  dispatch.runtimeMessage = (message) => {
-    let response;
-    runtimeMessageHandler(message, {}, (value) => { response = value; });
-    return response;
-  };
+
   dispatch.postedMessages = postedMessages;
-  dispatch.runtimeMessages = runtimeMessages;
-  dispatch.storageChanged = (changes) => storageChangedHandler(changes, 'sync');
-  dispatch.navigate = (nextPathname) => {
-    context.location.pathname = nextPathname;
-    storageChangedHandler({ isHiding: { newValue: true } }, 'sync');
-  };
-  dispatch.initialize = () => {
-    storageGetCallback(storage);
-    messageHandler({ source: context.window, data: { source: 'hvu', users, ...messageData } });
-  };
   dispatch.detectCalls = () => detectCalls;
   return dispatch;
 }
@@ -169,67 +138,6 @@ test('hides a paid account but keeps an unverified placement-tracked video', () 
   assert.equal(paidPost.classList.contains('hvu-hidden'), true);
 });
 
-test('reports the hidden count to the popup for this tab', () => {
-  const paidPost = makeArticle({ handle: 'paid_user' });
-  const dispatch = runContent({ articles: [paidPost], users: { paid_user: 'paid' } });
-
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(dispatch.runtimeMessage({ type: 'tfx-get-blocked-count' }))),
-    { blockedCount: 1, documentToken: 'test-document' },
-  );
-});
-
-test('reports zero before asynchronous settings initialization completes', () => {
-  const dispatch = runContent({ articles: [], deferInitialization: true });
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(dispatch.runtimeMessage({ type: 'tfx-get-blocked-count' }))),
-    { blockedCount: 0, documentToken: 'test-document' },
-  );
-  dispatch.initialize();
-  assert.deepEqual(dispatch.runtimeMessages.map(message => message.blockedCount), [0]);
-});
-
-test('publishes current hidden-count changes for settings and DOM removal', () => {
-  const paidPost = makeArticle({ handle: 'paid_user' });
-  const articles = [paidPost];
-  const dispatch = runContent({ articles, users: { paid_user: 'paid' } });
-
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(dispatch.runtimeMessages.at(-1))),
-    { type: 'tfx-blocked-count-updated', blockedCount: 1, documentToken: 'test-document' },
-  );
-  dispatch({ users: { paid_user: 'paid' } });
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(dispatch.runtimeMessages.map(message => message.blockedCount))),
-    [0, 1],
-  );
-  dispatch.storageChanged({ isHiding: { newValue: false } });
-  dispatch.storageChanged({ isHiding: { newValue: true } });
-  articles.length = 0;
-  dispatch.storageChanged({ isHiding: { newValue: true } });
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(dispatch.runtimeMessages.map(message => message.blockedCount))),
-    [0, 1, 0, 1, 0],
-  );
-});
-
-test('updates the count when X reuses an article for another post', () => {
-  const article = makeArticle({ handle: 'paid_user' });
-  const dispatch = runContent({ articles: [article], users: { paid_user: 'paid' } });
-  article.reuseAs('normal_user');
-  dispatch({ users: { normal_user: 'other' } });
-  assert.equal(article.classList.contains('hvu-hidden'), false);
-  assert.equal(dispatch.runtimeMessages.at(-1).blockedCount, 0);
-});
-
-test('updates the count across SPA route changes', () => {
-  const article = makeArticle({ handle: 'paid_user', tweetId: '123456789' });
-  const dispatch = runContent({ pathname: '/home', articles: [article], users: { paid_user: 'paid' } });
-  dispatch.navigate('/paid_user/status/123456789');
-  assert.equal(dispatch.runtimeMessages.at(-1).blockedCount, 0);
-  dispatch.navigate('/home');
-  assert.equal(dispatch.runtimeMessages.at(-1).blockedCount, 1);
-});
 
 test('announces readiness so early API classifications can be replayed', () => {
   const dispatch = runContent({ articles: [] });

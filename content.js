@@ -11,6 +11,9 @@
   const MAX_CACHE_ENTRIES = 10_000;
   const AI_LABELS = new Set(["AIで生成", "AI生成", "Made with AI", "AI-generated"]);
   const UNKNOWN_LANGUAGE_CODES = new Set(["und", "qam", "qct", "qht", "qme", "qst", "zxx"]);
+  const DOCUMENT_TOKEN = typeof globalThis.crypto?.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const DEBUG = () => {
     try { return localStorage.getItem("hvu-debug") === "1"; } catch (_) { return false; }
   };
@@ -20,6 +23,7 @@
   let hideAiGenerated = false;
   let hideForeignLanguage = false;
   let blockedCount = 0;
+  let hasPublishedCount = false;
   const status = new Map(); // lowercased handle -> "paid" | "other"
   const aiPostIds = new Set();
   const languages = new Map(); // tweet ID -> X language code
@@ -242,7 +246,16 @@
         article.classList.remove(HIDE_CLASS);
       }
     });
-    blockedCount = count;
+    if (!hasPublishedCount || count !== blockedCount) {
+      blockedCount = count;
+      hasPublishedCount = true;
+      try {
+        chrome.runtime.sendMessage(
+          { type: "tfx-blocked-count-updated", blockedCount, documentToken: DOCUMENT_TOKEN },
+          () => void chrome.runtime.lastError,
+        );
+      } catch (_) {}
+    }
     if (DEBUG()) {
       const handles = [...articles].map(authorHandle).filter(Boolean);
       log(`apply: hiding=${isHiding}, ${articles.length} posts, ${count} hidden, ${status.size} classified handles`);
@@ -304,7 +317,7 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== "tfx-get-blocked-count") return;
-    sendResponse({ blockedCount });
+    sendResponse({ blockedCount, documentToken: DOCUMENT_TOKEN });
   });
 
   const observer = new MutationObserver(schedule);

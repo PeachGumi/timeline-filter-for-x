@@ -11,6 +11,17 @@
   const MAX_CACHE_ENTRIES = 10_000;
   const AI_LABELS = new Set(["AIで生成", "AI生成", "Made with AI", "AI-generated"]);
   const UNKNOWN_LANGUAGE_CODES = new Set(["und", "qam", "qct", "qht", "qme", "qst", "zxx"]);
+  // Top-level X routes that are not an account profile, so a handle-like first
+  // path segment on them is not treated as a profile page.
+  const RESERVED_PATHS = new Set([
+    "about", "account", "auth", "bookmarks", "communities", "compose", "connect_people",
+    "explore", "followers", "following", "hashtag", "help", "home", "i", "intents",
+    "jobs", "lists", "login", "logout", "messages", "notifications", "oauth", "premium",
+    "privacy", "search", "settings", "share", "signup", "status", "tos", "topics",
+    "verified", "who_to_follow",
+  ]);
+  // Profile tabs that show the profile owner's posts.
+  const PROFILE_TABS = new Set(["with_replies", "media", "likes", "highlights"]);
 
   const DEBUG = () => {
     try { return localStorage.getItem("hvu-debug") === "1"; } catch (_) { return false; }
@@ -218,16 +229,28 @@
     return match ? match[1] : null;
   }
 
+  // A profile page (/handle, /handle/with_replies, ...) is one the reader opened
+  // on purpose, so no filter applies there.
+  function isProfileRoute() {
+    const segments = location.pathname.split("/").filter(Boolean);
+    if (segments.length < 1 || segments.length > 2) return false;
+    const handle = segments[0];
+    if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) return false;
+    if (RESERVED_PATHS.has(handle.toLowerCase())) return false;
+    return segments.length === 1 || PROFILE_TABS.has(segments[1].toLowerCase());
+  }
+
   function apply() {
     const articles = document.querySelectorAll(TWEET_SELECTOR);
-    const linkedTweetId = routeStatusId();
-    const filtersEnabled = isHiding || hideForeignLanguage || hideAiGenerated;
+    const profilePage = isProfileRoute();
+    const linkedTweetId = profilePage ? null : routeStatusId();
+    const filtersEnabled = (isHiding || hideForeignLanguage || hideAiGenerated) && !profilePage;
     const needsId = filtersEnabled && (!!linkedTweetId || hideForeignLanguage || hideAiGenerated);
     articles.forEach((article) => {
-      const handle = isHiding || needsId ? authorHandle(article) : null;
+      const handle = filtersEnabled ? authorHandle(article) : null;
       const id = needsId ? tweetId(article, handle) : null;
       const linkedPost = linkedTweetId && id === linkedTweetId;
-      const exempt = linkedPost || following.has(handle);
+      const exempt = profilePage || linkedPost || following.has(handle);
       let labels = null;
       let filtered = !exempt && isHiding && isPaidHandle(handle);
       if (!exempt && !filtered && hideForeignLanguage) {
@@ -246,7 +269,7 @@
     if (DEBUG()) {
       const handles = [...articles].map(authorHandle).filter(Boolean);
       const hidden = [...articles].filter(article => article.classList.contains(HIDE_CLASS)).length;
-      log(`apply: hiding=${isHiding}, ${articles.length} posts, ${hidden} hidden, ${status.size} classified handles`);
+      log(`apply: hiding=${isHiding}, profile=${profilePage}, ${articles.length} posts, ${hidden} hidden, ${status.size} classified handles`);
       log("visible post handles:", handles.join(", "));
     }
   }

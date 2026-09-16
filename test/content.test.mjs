@@ -81,6 +81,7 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
   let messageHandler;
   const postedMessages = [];
   let detectCalls = 0;
+  const pageLocation = { pathname };
   const context = {
     chrome: {
       i18n: {
@@ -105,7 +106,7 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
       querySelectorAll: (selector) => selector === 'article' ? articles : [],
     },
     localStorage: { getItem: () => null },
-    location: { pathname },
+    location: pageLocation,
     Map,
     MutationObserver: class { observe() {} },
     requestAnimationFrame: (callback) => callback(),
@@ -123,6 +124,8 @@ function runContent({ pathname = '/home', articles, users = {}, storage = { isHi
 
   dispatch.postedMessages = postedMessages;
   dispatch.detectCalls = () => detectCalls;
+  // The X page is a SPA: route changes reuse the same articles.
+  dispatch.setPath = (next) => { pageLocation.pathname = next; };
   return dispatch;
 }
 
@@ -205,6 +208,72 @@ test('announces readiness so early API classifications can be replayed', () => {
   const dispatch = runContent({ articles: [] });
 
   assert.equal(dispatch.postedMessages.some(message => message.source === 'tfx-content-ready'), true);
+});
+
+test('leaves a profile page unfiltered and filters again once the reader leaves it', () => {
+  const paidPost = makeArticle({
+    handle: 'lemontea_star',
+    tweetId: '2098574607339159828',
+    text: 'This is an English AI post',
+    domLanguage: 'en',
+    aiLabel: 'Made with AI',
+  });
+  const dispatch = runContent({
+    pathname: '/lemontea_star',
+    articles: [paidPost],
+    users: { lemontea_star: 'paid' },
+    storage: { isHiding: true, hideAiGenerated: true, hideForeignLanguage: true },
+  });
+  assert.equal(paidPost.classList.contains('hvu-hidden'), false);
+
+  dispatch.setPath('/home');
+  dispatch({ users: { refresh_one: 'other' } });
+  assert.equal(paidPost.classList.contains('hvu-hidden'), true);
+
+  dispatch.setPath('/lemontea_star');
+  dispatch({ users: { refresh_two: 'other' } });
+  assert.equal(paidPost.classList.contains('hvu-hidden'), false);
+
+  dispatch.setPath('/lemontea_star/status/2098574607339159828');
+  dispatch({ users: { refresh_three: 'other' } });
+  assert.equal(paidPost.classList.contains('hvu-hidden'), false);
+});
+
+test('filters paid replies again under a post opened from a profile', () => {
+  const linkedPost = makeArticle({ handle: 'lemontea_star', tweetId: '2098574607339159828' });
+  const paidReply = makeArticle({ handle: 'paid_user', tweetId: '2098574607339159829' });
+  runContent({
+    pathname: '/lemontea_star/status/2098574607339159828',
+    articles: [linkedPost, paidReply],
+    users: { lemontea_star: 'paid', paid_user: 'paid' },
+  });
+
+  assert.equal(linkedPost.classList.contains('hvu-hidden'), false);
+  assert.equal(paidReply.classList.contains('hvu-hidden'), true);
+});
+
+test('keeps the posts tabs of a profile unfiltered as well', () => {
+  for (const path of ['/lemontea_star/with_replies', '/lemontea_star/media', '/lemontea_star/likes']) {
+    const paidPost = makeArticle({ handle: 'lemontea_star', tweetId: '2098574607339159828' });
+    runContent({
+      pathname: path,
+      articles: [paidPost],
+      users: { lemontea_star: 'paid' },
+    });
+    assert.equal(paidPost.classList.contains('hvu-hidden'), false, path);
+  }
+});
+
+test('still filters routes that only look like a handle', () => {
+  for (const path of ['/home', '/explore', '/search', '/notifications', '/i/web/status/2098574607339159827']) {
+    const paidPost = makeArticle({ handle: 'paid_user', tweetId: '2098574607339159828' });
+    runContent({
+      pathname: path,
+      articles: [paidPost],
+      users: { paid_user: 'paid' },
+    });
+    assert.equal(paidPost.classList.contains('hvu-hidden'), true, path);
+  }
 });
 
 test('keeps the linked post visible but filters paid replies on a status page', () => {

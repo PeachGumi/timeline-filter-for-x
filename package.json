@@ -1,6 +1,6 @@
 {
   "name": "timeline-filter-for-x",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "private": true,
   "description": "Locally filter X/Twitter posts by paid verification, AI labels, and language.",
   "license": "CC0-1.0",

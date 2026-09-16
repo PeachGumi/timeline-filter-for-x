@@ -13,6 +13,7 @@ Substantial changes in this derivative include:
 - distinguishing paid individual verification from business, government, and legacy verification;
 - keeping ordinary video and GIF posts visible;
 - filtering replies while preserving a post opened by its direct URL;
+- leaving user profile pages unfiltered;
 - optional filters for X's AI-generation labels and non-Japanese posts;
 - handling quote cards, delayed X markup, missing API metadata, and X automatic translation;
 - regression coverage for filtering and visibility stability;

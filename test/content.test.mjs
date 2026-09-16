@@ -276,6 +276,53 @@ test('still filters routes that only look like a handle', () => {
   }
 });
 
+test('only profile routes stand filtering down across real X URL shapes', () => {
+  const filtered = [
+    '/home',
+    '/explore',
+    '/search',
+    '/notifications',
+    '/messages',
+    '/bookmarks',
+    '/settings/profile',
+    '/compose/post',
+    '/i/web/status/2098574607339159827',
+    '/i/lists/12345',
+    '/status/2098574607339159827',
+    '/lemontea_star/status/2098574607339159827',
+    '/lemontea_star/followers',
+    '/lemontea_star/highlights/2098574607339159827',
+    '/lemontea_star/media/2098574607339159827',
+  ];
+  const unfiltered = [
+    '/lemontea_star',
+    '/lemontea_star/',
+    '/LemonTea_Star',
+    '/a',
+    '/lemontea_star/with_replies',
+    '/lemontea_star/media',
+    '/lemontea_star/likes',
+    '/lemontea_star/highlights',
+  ];
+
+  for (const path of [...filtered, ...unfiltered]) {
+    const paidPost = makeArticle({
+      handle: 'paid_user',
+      tweetId: '2098574607339159828',
+      text: 'This is an English post',
+      domLanguage: 'en',
+    });
+    runContent({
+      pathname: path,
+      articles: [paidPost],
+      users: { paid_user: 'paid' },
+      storage: { isHiding: true, hideForeignLanguage: true },
+    });
+    const expectHidden = filtered.includes(path);
+    assert.equal(paidPost.classList.contains('hvu-hidden'), expectHidden, `${path} (${expectHidden ? 'filtered' : 'profile'})`);
+  }
+});
+
 test('keeps the linked post visible but filters paid replies on a status page', () => {
   const linkedPost = makeArticle({ handle: 'paid_user', tweetId: '2098574607339159828' });
   const paidReply = makeArticle({ handle: 'paid_reply', tweetId: '2098574607339159829' });

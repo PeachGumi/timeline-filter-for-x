@@ -244,10 +244,10 @@
     const articles = document.querySelectorAll(TWEET_SELECTOR);
     const profilePage = isProfileRoute();
     const linkedTweetId = profilePage ? null : routeStatusId();
-    const filtersEnabled = (isHiding || hideForeignLanguage || hideAiGenerated) && !profilePage;
-    const needsId = filtersEnabled && (!!linkedTweetId || hideForeignLanguage || hideAiGenerated);
+    const filteringActive = (isHiding || hideForeignLanguage || hideAiGenerated) && !profilePage;
+    const needsId = filteringActive && (!!linkedTweetId || hideForeignLanguage || hideAiGenerated);
     articles.forEach((article) => {
-      const handle = filtersEnabled ? authorHandle(article) : null;
+      const handle = filteringActive ? authorHandle(article) : null;
       const id = needsId ? tweetId(article, handle) : null;
       const linkedPost = linkedTweetId && id === linkedTweetId;
       const exempt = profilePage || linkedPost || following.has(handle);

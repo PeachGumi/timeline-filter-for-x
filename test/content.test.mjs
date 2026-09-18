@@ -270,7 +270,7 @@ test('filters paid replies again under a post opened from a profile', () => {
 });
 
 test('keeps the posts tabs of a profile unfiltered as well', () => {
-  for (const path of ['/lemontea_star/with_replies', '/lemontea_star/media', '/lemontea_star/likes']) {
+  for (const path of ['/lemontea_star/with_replies', '/lemontea_star/reposts', '/lemontea_star/media', '/lemontea_star/likes', '/lemontea_star/highlights']) {
     const paidPost = makeArticle({ handle: 'lemontea_star', tweetId: '2098574607339159828' });
     runContent({
       pathname: path,
@@ -317,6 +317,7 @@ test('only profile routes stand filtering down across real X URL shapes', () => 
     '/LemonTea_Star',
     '/a',
     '/lemontea_star/with_replies',
+    '/lemontea_star/reposts',
     '/lemontea_star/media',
     '/lemontea_star/likes',
     '/lemontea_star/highlights',

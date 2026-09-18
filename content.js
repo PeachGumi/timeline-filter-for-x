@@ -21,7 +21,7 @@
     "verified", "who_to_follow",
   ]);
   // Profile tabs that show the profile owner's posts.
-  const PROFILE_TABS = new Set(["with_replies", "media", "likes", "highlights"]);
+  const PROFILE_TABS = new Set(["with_replies", "reposts", "media", "likes", "highlights"]);
   // X's own history pages: viewed posts (/i/history) and the liked-posts tab
   // (/i/history/likes). Both list posts the reader already picked themselves.
   const HISTORY_ROUTE = /^\/i\/history(?:\/|$)/;

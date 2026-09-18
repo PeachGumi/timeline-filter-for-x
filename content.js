@@ -22,6 +22,9 @@
   ]);
   // Profile tabs that show the profile owner's posts.
   const PROFILE_TABS = new Set(["with_replies", "media", "likes", "highlights"]);
+  // X's own history pages: viewed posts (/i/history) and the liked-posts tab
+  // (/i/history/likes). Both list posts the reader already picked themselves.
+  const HISTORY_ROUTE = /^\/i\/history(?:\/|$)/;
 
   const DEBUG = () => {
     try { return localStorage.getItem("hvu-debug") === "1"; } catch (_) { return false; }
@@ -240,17 +243,23 @@
     return segments.length === 1 || PROFILE_TABS.has(segments[1].toLowerCase());
   }
 
+  // Routes where filtering stands down: a profile page, or one of X's history
+  // pages, which the reader also opens to look at posts of their own choosing.
+  function isUnfilteredRoute() {
+    return isProfileRoute() || HISTORY_ROUTE.test(location.pathname);
+  }
+
   function apply() {
     const articles = document.querySelectorAll(TWEET_SELECTOR);
-    const profilePage = isProfileRoute();
-    const linkedTweetId = profilePage ? null : routeStatusId();
-    const filteringActive = (isHiding || hideForeignLanguage || hideAiGenerated) && !profilePage;
+    const unfilteredPage = isUnfilteredRoute();
+    const linkedTweetId = unfilteredPage ? null : routeStatusId();
+    const filteringActive = (isHiding || hideForeignLanguage || hideAiGenerated) && !unfilteredPage;
     const needsId = filteringActive && (!!linkedTweetId || hideForeignLanguage || hideAiGenerated);
     articles.forEach((article) => {
       const handle = filteringActive ? authorHandle(article) : null;
       const id = needsId ? tweetId(article, handle) : null;
       const linkedPost = linkedTweetId && id === linkedTweetId;
-      const exempt = profilePage || linkedPost || following.has(handle);
+      const exempt = unfilteredPage || linkedPost || following.has(handle);
       let labels = null;
       let filtered = !exempt && isHiding && isPaidHandle(handle);
       if (!exempt && !filtered && hideForeignLanguage) {
@@ -269,7 +278,7 @@
     if (DEBUG()) {
       const handles = [...articles].map(authorHandle).filter(Boolean);
       const hidden = [...articles].filter(article => article.classList.contains(HIDE_CLASS)).length;
-      log(`apply: hiding=${isHiding}, profile=${profilePage}, ${articles.length} posts, ${hidden} hidden, ${status.size} classified handles`);
+      log(`apply: hiding=${isHiding}, unfiltered=${unfilteredPage}, ${articles.length} posts, ${hidden} hidden, ${status.size} classified handles`);
       log("visible post handles:", handles.join(", "));
     }
   }

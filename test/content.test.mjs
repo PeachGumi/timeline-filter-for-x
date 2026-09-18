@@ -239,6 +239,23 @@ test('leaves a profile page unfiltered and filters again once the reader leaves 
   assert.equal(paidPost.classList.contains('hvu-hidden'), false);
 });
 
+test('leaves the history pages unfiltered and filters again once the reader leaves them', () => {
+  for (const path of ['/i/history', '/i/history/likes']) {
+    const paidPost = makeArticle({ handle: 'paid_user', tweetId: '2098574607339159828' });
+    const dispatch = runContent({
+      pathname: path,
+      articles: [paidPost],
+      users: { paid_user: 'paid' },
+      storage: { isHiding: true, hideAiGenerated: true, hideForeignLanguage: true },
+    });
+    assert.equal(paidPost.classList.contains('hvu-hidden'), false, path);
+
+    dispatch.setPath('/home');
+    dispatch({ users: { refresh_one: 'other' } });
+    assert.equal(paidPost.classList.contains('hvu-hidden'), true, `${path} -> /home`);
+  }
+});
+
 test('filters paid replies again under a post opened from a profile', () => {
   const linkedPost = makeArticle({ handle: 'lemontea_star', tweetId: '2098574607339159828' });
   const paidReply = makeArticle({ handle: 'paid_user', tweetId: '2098574607339159829' });
@@ -303,6 +320,9 @@ test('only profile routes stand filtering down across real X URL shapes', () => 
     '/lemontea_star/media',
     '/lemontea_star/likes',
     '/lemontea_star/highlights',
+    '/i/history',
+    '/i/history/',
+    '/i/history/likes',
   ];
 
   for (const path of [...filtered, ...unfiltered]) {
